@@ -12,8 +12,9 @@ async function main() {
   process.env.APP_BASE_URL = "http://localhost:3003";
   process.env.AUTH_CSRF_SECRET = "a".repeat(64);
   process.env.AUTH_RATE_LIMIT_SECRET = "b".repeat(64);
-  const { createListing, editListing, transitionListing, createLead, publicListing } = await import("../src/server/properties/service.ts");
+  const { createListing, editListing, transitionListing, createLead, publicListing, markListingSold } = await import("../src/server/properties/service.ts");
   const { AuthHttpError } = await import("../src/server/auth/http.ts");
+  const { AuthorizationError } = await import("../src/server/auth/actor.ts");
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   const profileId = randomUUID();
   const actor = { profileId, email: "backend-test@example.invalid", name: "Backend Test", roles: ["admin"] };
@@ -54,7 +55,14 @@ async function main() {
     await assert.rejects(catalog(new URLSearchParams({ cursor: "invalid" })), (error) => error.code === "INVALID_CURSOR");
     const lead = await createLead({ propertyId, name: "Pengunjung", email: "visitor@example.invalid", consent: true });
     assert.ok(lead.id);
-    const revised = await editListing(actor, propertyId, approved.version, { ...listing, askingPrice: 990000000 });
+    const published = await client.query("select version from app.properties where id=$1", [propertyId]);
+    await assert.rejects(markListingSold({ ...actor, roles: ["editor"] }, propertyId, { version: published.rows[0].version, reason: "Penjualan selesai" }), (error) => error instanceof AuthorizationError);
+    const sold = await markListingSold(actor, propertyId, { version: published.rows[0].version, reason: "Penjualan selesai" });
+    assert.equal(sold.availabilityStatus, "sold");
+    await assert.rejects(createLead({ propertyId, name: "Pengunjung kedua", email: "visitor-2@example.invalid", consent: true }), (error) => error instanceof AuthHttpError && error.code === "NOT_FOUND");
+    await client.query("update app.properties set availability_status='available', version=version+1 where id=$1", [propertyId]);
+    const revisedVersion = (await client.query("select version from app.properties where id=$1", [propertyId])).rows[0].version;
+    const revised = await editListing(actor, propertyId, revisedVersion, { ...listing, askingPrice: 990000000 });
     assert.equal((await publicListing(created.property.slug)).askingPrice, listing.askingPrice);
     const concurrent = await Promise.allSettled([editListing(actor, propertyId, revised.version, listing), editListing(actor, propertyId, revised.version, listing)]);
     assert.equal(concurrent.filter((result) => result.status === "fulfilled").length, 1);

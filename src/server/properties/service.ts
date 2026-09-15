@@ -98,6 +98,21 @@ export async function publicListing(slug: string) {
   return { ...row, media };
 }
 
+export async function markListingSold(actor: Actor, id: string, value: unknown) {
+  requireRole(actor, "admin");
+  id = identifier.parse(id);
+  const input = z.object({ version: z.number().int().positive(), reason: z.string().trim().min(3).max(1000) }).strict().parse(value);
+  return getDatabase().transaction(async (transaction) => {
+    const [property] = await transaction.select().from(properties).where(eq(properties.id, id)).for("update");
+    if (!property) throw missing();
+    if (property.version !== input.version) throw conflict();
+    if (property.publicationStatus !== "published" || property.availabilityStatus !== "available") throw new AuthHttpError(409, "INVALID_TRANSITION", "Hanya properti terpublikasi dan tersedia dapat ditandai terjual.");
+    const [updated] = await transaction.update(properties).set({ availabilityStatus: "sold", version: property.version + 1, updatedAt: new Date() }).where(eq(properties.id, id)).returning();
+    await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property.sold", entityType: "property", entityId: id, metadata: { reason: input.reason } });
+    return updated;
+  });
+}
+
 export async function staffListings(actor: Actor) {
   requireRole(actor, "editor", "admin");
   return getDatabase().select({
