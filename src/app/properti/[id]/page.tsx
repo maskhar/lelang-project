@@ -11,8 +11,22 @@ import styles from "./property-detail.module.css";
 import PropertyHeroGallery from "./property-hero-gallery";
 import PropertyAmenities from "./property-amenities";
 import PropertyActions from "./property-actions";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  try {
+    const listing = await publicListing(id);
+    const image = listing.media.find((item) => item.isCover) || listing.media[0];
+    const description = listing.description.slice(0, 155);
+    return { title: listing.title + " · " + listing.sku, description, openGraph: { title: listing.title, description, type: "website", images: image ? [{ url: "/api/v1/media/" + image.id }] : undefined } };
+  } catch (error) {
+    if (error instanceof AuthHttpError && error.status === 404) return { title: "Properti tidak ditemukan", robots: { index: false, follow: false } };
+    throw error;
+  }
+}
 
 function statusLabel(mode: string) {
   if (mode === "lelang") return "Lelang aktif";

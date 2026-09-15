@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { formatRupiah } from "@/lib/currency";
 import { propertyTypes } from "@/lib/properties";
@@ -20,16 +21,30 @@ function PropertyIcon({ type }: { type: string }) {
   return <svg viewBox="0 0 48 48" aria-hidden="true"><path {...common} d="m6 23 18-15 18 15M11 20v20h26V20M20 40V28h8v12M15 23h5m8 0h5" /></svg>;
 }
 
-export default function Home() {
+function CatalogHome() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [catalogProperties, setCatalogProperties] = useState<Property[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [query, setQuery] = useState("");
-  const [type, setType] = useState("");
-  const [price, setPrice] = useState("");
-  const [mode, setMode] = useState("");
-  const [sort, setSort] = useState("terbaru");
+  const query = (searchParams.get("q") || "").slice(0, 100);
+  const type = propertyTypes.includes(searchParams.get("type") || "") ? searchParams.get("type")! : "";
+  const price = ["low", "mid", "high", "premium"].includes(searchParams.get("price") || "") ? searchParams.get("price")! : "";
+  const mode = ["lelang", "langsung"].includes(searchParams.get("mode") || "") ? searchParams.get("mode")! : "";
+  const sort = ["terbaru", "harga-asc", "harga-desc", "berakhir"].includes(searchParams.get("sort") || "") ? searchParams.get("sort")! : "terbaru";
+  function updateFilter(key: string, value: string, replace = false) {
+    const parameters = new URLSearchParams(window.location.search);
+    if (value) parameters.set(key, value); else parameters.delete(key);
+    parameters.delete("cursor");
+    const target = "/" + (parameters.size ? "?" + parameters : "") + window.location.hash;
+    if (replace) router.replace(target, { scroll: false }); else router.push(target, { scroll: false });
+  }
+  const setQuery = (value: string) => updateFilter("q", value, true);
+  const setType = (value: string) => updateFilter("type", value);
+  const setPrice = (value: string) => updateFilter("price", value);
+  const setMode = (value: string) => updateFilter("mode", value);
+  const setSort = (value: string) => updateFilter("sort", value);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const requestController = useRef<AbortController | null>(null);
@@ -143,11 +158,15 @@ export default function Home() {
       </section>
 
       <section className="how" id="cara-kerja"><div className="section-heading"><span className="eyebrow dark-text">PROSES TERSTRUKTUR</span><h2>Dari pencarian properti hingga tindak lanjut</h2><p>Platform ini menyediakan katalog dan pengiriman minat, bukan sistem bidding atau pembayaran.</p></div><div className="steps">{[["01", "Cari properti", "Gunakan filter jenis, harga, dan mode pemasaran."], ["02", "Pelajari detail", "Tinjau informasi properti dan jadwal yang tercantum."], ["03", "Kirim minat", "Isi formulir pada detail properti agar staf dapat menghubungi Anda."], ["04", "Tindak lanjut", "Bahas informasi dan proses berikutnya dengan staf di luar platform."]].map(([number, title, text]) => <div className="step" key={number}><span>{number}</span><h3>{title}</h3><p>{text}</p></div>)}</div></section>
-      <section className="seller" id="jual"><div><span className="eyebrow">UNTUK PEMILIK ASET</span><h2>Punya properti untuk dijual atau dilelang?</h2><p>Daftarkan aset dan jangkau pencari properti yang siap menawar.</p></div><button className="button light" onClick={() => setNotice("Mode prototype: pendaftaran aset belum tersedia. Tidak ada data yang dikirim.")}>Daftarkan Properti</button></section>
+      <section className="seller" id="jual"><div><span className="eyebrow">UNTUK PEMILIK ASET</span><h2>Punya properti untuk dijual atau dilelang?</h2><p>Masuk ke dashboard untuk membuat draft, menambahkan foto, dan mengirim properti ke proses review.</p></div><Link className="button light" href="/dashboard/properties">Daftarkan Properti</Link></section>
     </main>
 
     <footer id="kontak" className="home-footer"><div><Image src="/image/logo/color/LP-logo-large-color.png" alt="Lelang Properti" width={1944} height={809} className="footer-logo" /><p>Platform pencarian dan transaksi properti dengan proses transparan.</p></div><div><b>Jelajahi</b><a href="#properti">Cari Properti</a><a href="#cara-kerja">Cara Kerja</a></div><div><b>Kontak</b><a href="mailto:halo@lelangproperti.id">halo@lelangproperti.id</a><a href="tel:+6281200000000">+62 812-0000-0000</a><Link href="/kebijakan-privasi">Kebijakan Privasi</Link></div><small>© 2026 Lelang Properti</small></footer>
 
     {notice && <div className="demo-notice" role="status">{notice}<button aria-label="Tutup pemberitahuan" onClick={() => setNotice("")}>×</button></div>}
   </>;
+}
+
+export default function Home() {
+  return <Suspense fallback={<main><p role="status">Memuat katalog…</p></main>}><CatalogHome /></Suspense>;
 }
