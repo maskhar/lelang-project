@@ -6,7 +6,7 @@ Tanggal: 15 September 2026 | Versi: 2.0 | Status: Arah teknis disetujui; detail 
 
 Backend dibangun dan dioperasikan sendiri, tanpa Supabase atau BaaS: Next.js + TypeScript, PostgreSQL mandiri, Drizzle ORM/Kit, Google OpenID Connect untuk identitas, session/RBAC aplikasi, storage volume persisten melalui adapter, SMTP, dan worker transactional outbox. Dokumen ini menggantikan keputusan integrasi lama.
 
-Tidak ada akses ke instance/server lama dalam rancangan baru. Lokasi deployment PostgreSQL, storage, backup, SMTP, dan Google OAuth client ditentukan terpisah. Kondisi saat ini: schema mandiri, reader session, route Google OAuth, logout, CSRF, dan rate limit tersedia; callback nyata menunggu OAuth client dan redirect URI. UI prototype masih SQLite.
+Tidak ada akses ke instance/server lama dalam rancangan baru. Kondisi development pada 15 September 2026: schema mandiri, Google OAuth/session/CSRF, katalog/detail PostgreSQL, dashboard terlindungi, workflow listing, media, lead, audit, outbox, metrics, backup lokal, dan restore ephemeral tersedia. Callback browser nyata menunggu penggunaan akun Google yang dipraotorisasi. Migrasi data/foto SQLite lama, MFA, dan deployment produksi belum selesai.
 
 ## 1. Tujuan dan batas dokumen
 

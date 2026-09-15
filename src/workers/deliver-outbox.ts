@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { getDatabasePool } from "@/server/db/client";
 import { processMedia } from "./process-media";
+import { discard, discardPublic } from "@/server/storage/local";
 
 export async function deliverOutbox(limit = 25) {
   const pool = getDatabasePool();
@@ -14,6 +15,10 @@ export async function deliverOutbox(limit = 25) {
       if (!event) { await client.query("commit"); break; }
       try {
         if (event.type === "media.verify") await processMedia(String(event.payload.mediaId));
+        else if (event.type === "media.cleanup") {
+          const media = await pool.query("select bucket,object_path from app.property_media where id=$1 and status='deleted'", [String(event.payload.mediaId)]);
+          if (media.rows[0]) await (media.rows[0].bucket === "public" ? discardPublic(media.rows[0].object_path) : discard(media.rows[0].object_path));
+        }
         else if (["lead.created", "property.review"].includes(event.type)) {
           if (!process.env.SMTP_HOST || !process.env.EMAIL_FROM || !process.env.NOTIFICATION_EMAIL) throw new Error("SMTP not configured.");
           const transport = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_PORT === "465", requireTLS: process.env.NODE_ENV === "production", auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD } : undefined, connectionTimeout: 3000, greetingTimeout: 3000, socketTimeout: 3000 });

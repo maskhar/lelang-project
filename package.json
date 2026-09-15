@@ -22,7 +22,9 @@
     "test:auth": "node scripts/test-auth.mjs",
     "test:backend": "node scripts/run-backend-tests.mjs",
     "worker:outbox": "node --conditions=react-server --import=tsx scripts/run-worker.ts",
-    "backup:local": "node scripts/backup-local.mjs"
+    "backup:local": "node scripts/backup-local.mjs",
+    "test:restore": "node scripts/test-restore-local.mjs",
+    "test:load": "node scripts/load-local.mjs"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

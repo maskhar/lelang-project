@@ -86,7 +86,22 @@ export async function publicListing(slug: string) {
 
 export async function staffListings(actor: Actor) {
   requireRole(actor, "editor", "admin");
-  return getDatabase().select().from(properties).orderBy(desc(properties.updatedAt), asc(properties.id)).limit(100);
+  return getDatabase().select({
+    id: properties.id,
+    slug: properties.slug,
+    saleMode: properties.saleMode,
+    publicationStatus: properties.publicationStatus,
+    availabilityStatus: properties.availabilityStatus,
+    type: properties.type,
+    askingPrice: properties.askingPrice,
+    version: properties.version,
+    updatedAt: properties.updatedAt,
+    title: propertyRevisions.title,
+    location: propertyRevisions.listingSnapshot,
+  }).from(properties)
+    .innerJoin(propertyRevisions, eq(propertyRevisions.propertyId, properties.id))
+    .where(sql`${propertyRevisions.revisionNumber} = (select max(latest.revision_number) from app.property_revisions latest where latest.property_id = ${properties.id})`)
+    .orderBy(desc(properties.updatedAt), asc(properties.id)).limit(100);
 }
 
 export async function createLead(input: z.infer<typeof leadInput>) {

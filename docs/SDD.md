@@ -99,7 +99,7 @@ Schema PostgreSQL aplikasi adalah `app`; journal Drizzle adalah `drizzle`. Tidak
 | GET | `/me` | Identitas dan role current session |
 | POST | `/auth/verify-email` | Konsumsi token verifikasi |
 
-Status implementasi: route Google start/callback, binding `sub`, session/logout, GET /api/v1/me, dan CSRF tersedia. Callback nyata menunggu konfigurasi Google OAuth. UI login tersedia; preapproval admin, mass revocation, MFA, dan integrasi dashboard belum tersedia.
+Status implementasi 15 September 2026: route Google start/callback, binding `sub`, session/logout, GET /api/v1/me, CSRF, dashboard terlindungi, katalog/detail PostgreSQL, listing workflow, media karantina, lead, audit, outbox, metrics, backup, dan restore test ephemeral tersedia. OAuth browser nyata masih memerlukan akun Google yang sudah dipraotorisasi; MFA dan mass revocation belum tersedia.
 
 ## 7. Storage mandiri
 

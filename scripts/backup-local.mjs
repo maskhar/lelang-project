@@ -5,6 +5,7 @@ import { loadEnvFile } from "node:process";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 
+try { loadEnvFile(".env.local"); } catch { }
 loadEnvFile(".env.migration.local");
 const target = new URL(process.env.DATABASE_MIGRATION_URL);
 if (target.hostname !== "127.0.0.1" || target.port !== "15432" || target.pathname !== "/lelang_properti_dev") throw new Error("Backup hanya menerima database development lokal.");

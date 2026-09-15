@@ -60,11 +60,11 @@ scripts/verify-database.sql menguji insert/constraint/rollback pada database kos
 
 ## Belum selesai / gate produksi
 
-- CLI preapproval development lokal tersedia; UI preapproval admin, MFA, dan revocation massal belum tersedia. Halaman login dasar tersedia.
-- Dashboard dan /api/properties prototype belum memakai auth baru; masih SQLite/local-only. Jangan deploy sebagai dashboard aman.
-- SMTP adapter/outbox delivery, storage volume adapter, migration foto, dan cutover katalog belum dibuat.
+- CLI preapproval development lokal tersedia; API admin dapat membaca akun, tetapi pembuatan/perubahan role tetap memakai CLI migration-role. MFA dan revocation massal belum tersedia.
+- Dashboard, katalog, detail, galeri, dan form minat memakai API v1 PostgreSQL. Data seed SQLite tidak lagi menjadi sumber katalog publik. Migrasi data/foto SQLite lama belum dibuat.
+- SMTP adapter, transactional outbox, media verification worker, storage volume lokal, cleanup media, dead-letter listing/retry, metrics, backup lokal, dan restore test ephemeral tersedia.
 - Rate limiter global merupakan guard awal: trafik multi-instance/produksi membutuhkan kebijakan quota dan cleanup key kadaluwarsa, alert spam, serta reverse proxy terpercaya.
-- Audit login/logout sukses tersedia; audit kegagalan aman/metrics, MFA admin, HTTPS deployment, backup/restore, dan load test masih gate rilis.
+- Audit domain dan login/logout sukses tersedia. Load smoke lokal 200 request concurrency 20 menghasilkan P95 379 ms pada 15 September 2026. MFA admin, HTTPS deployment nyata, backup terenkripsi lokasi kedua, alerting eksternal, dan load test staging representatif tetap gate rilis.
 - Tidak ada perubahan ke server Supabase lama, gateway, atau database produksi.
 
 
@@ -73,5 +73,5 @@ scripts/verify-database.sql menguji insert/constraint/rollback pada database kos
 - API v1 tersedia untuk listing staf, workflow review/publish, katalog/detail publik, media karantina, lead, audit admin, dashboard, health, dan metrics. Endpoint lama `/api/properties` serta `/api/uploads/*` mengembalikan `410`; dashboard prototype belum dihubungkan otomatis agar perubahan frontend pengguna tidak tertimpa.
 - Jalankan worker dengan `npm run worker:outbox -- --once` untuk satu batch atau tanpa `--once` untuk proses berkelanjutan. Worker memverifikasi media, mengirim event SMTP yang dikonfigurasi, retry exponential, lalu memakai `dead_letter` setelah delapan kegagalan.
 - `GET /api/v1/health/metrics` wajib header `Authorization: Bearer <METRICS_TOKEN>` dan tidak boleh diekspos publik. Endpoint menampilkan count listing publik, lead baru, outbox pending, dan dead letter.
-- Backup development lokal: tetapkan `BACKUP_ROOT` ke path absolut privat di luar repository, lalu jalankan `npm run backup:local`. Script hanya menerima PostgreSQL `127.0.0.1:15432/lelang_properti_dev`, menghapus file parsial saat gagal, dan tidak melakukan restore. Uji restore dilakukan pada database staging kosong terpisah sebelum rilis.
+- Backup development lokal: tetapkan `BACKUP_ROOT` ke path absolut privat di luar repository, lalu jalankan `npm run backup:local`. Jalankan `npm run test:restore` untuk restore ke PostgreSQL Docker ephemeral. Drill staging/produksi tetap wajib sebelum rilis.
 - Validasi: `npm run typecheck`, `npm run lint`, `npm run db:check`, `npm run test:auth`, dan `npm run test:backend`. Test backend membuat container PostgreSQL ephemeral pada `127.0.0.1:25433`; tidak memakai volume development atau produksi.

@@ -10,7 +10,7 @@ function ActionIcon({ name }: { name: "save" | "share" | "brochure" }) {
   const paths = { save: <path d="M20 21l-8-5-8 5V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16Z" />, share: <><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.6 10.5 6.8-4m-6.8 7 6.8 4" /></>, brochure: <><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" /></> };
   return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
-export default function PropertyActions({ id, title }: { id: number; title: string }) {
+export default function PropertyActions({ id, title }: { id: number | string; title: string }) {
   const saved = useSyncExternalStore(subscribe, () => { try { return localStorage.getItem("saved-property-" + id) === "true"; } catch { return false; } }, () => false);
   const [message, setMessage] = useState("");
   function toggle() { try { localStorage.setItem("saved-property-" + id, String(!saved)); window.dispatchEvent(new Event("property-saved")); setMessage(saved ? "Aset dihapus dari simpanan browser ini." : "Aset disimpan di browser ini."); } catch { setMessage("Gagal menyimpan. Periksa izin penyimpanan browser."); } }

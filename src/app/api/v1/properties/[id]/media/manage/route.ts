@@ -6,7 +6,7 @@ import { requireCsrf } from "@/server/auth/csrf";
 import { AuthHttpError, readAuthJson } from "@/server/auth/http";
 import { apiErrorResponse } from "@/server/api";
 import { getDatabase } from "@/server/db/client";
-import { auditLogs, properties, propertyMedia, propertyRevisions } from "@/server/db/schema";
+import { auditLogs, outboxEvents, properties, propertyMedia, propertyRevisions } from "@/server/db/schema";
 import { identifier } from "@/server/properties/validation";
 
 export const runtime = "nodejs";
@@ -30,6 +30,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       for (const item of media) {
         const order = input.mediaIds.indexOf(item.id);
         await transaction.update(propertyMedia).set({ ...(order < 0 ? { status: "deleted" as const } : { sortOrder: order, isCover: order === 0 }), updatedAt: new Date() }).where(eq(propertyMedia.id, item.id));
+        if (order < 0) await transaction.insert(outboxEvents).values({ type: "media.cleanup", payload: { mediaId: item.id } });
       }
       await transaction.update(properties).set({ version: property.version + 1, updatedAt: new Date() }).where(eq(properties.id, id));
       await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property.media.ordered", entityType: "property", entityId: id, metadata: { revisionId: revision.id, mediaIds: input.mediaIds } });
