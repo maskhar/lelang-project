@@ -1,0 +1,10 @@
+"use client";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { apiRequest, ApiClientError } from "@/components/api-client";
+import { StatusBadge } from "@/components/status-badge";
+import { formatRupiah } from "@/lib/currency";
+import styles from "../dashboard-shell.module.css";
+
+type Item={id:string;title:string;type:string;askingPrice:number;version:number;publicationStatus:string;latestRevisionStatus:string;updatedAt:string;location:{city:string;province:string}|null};
+export default function PropertiesPage(){const[items,setItems]=useState<Item[]>([]);const[error,setError]=useState("");const[loading,setLoading]=useState(true);useEffect(()=>{const controller=new AbortController();apiRequest<Item[]>("/api/v1/admin/properties",{cache:"no-store",signal:controller.signal}).then(setItems).catch((reason)=>{if(!controller.signal.aborted)setError(reason instanceof ApiClientError?reason.message:"Gagal memuat properti.");}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();},[]);return <><div className={styles.heading}><div><h1>Properti</h1><p>Draft, revisi, dan status publikasi dari PostgreSQL.</p></div><Link className="button dark" href="/dashboard">Tambah properti</Link></div><section className={styles.panel}>{error&&<p className={styles.error}>{error}</p>}{loading?<p>Memuat…</p>:items.length?<table className={styles.table}><thead><tr><th>Properti</th><th>Status</th><th>Harga</th><th>Versi</th><th>Aksi</th></tr></thead><tbody>{items.map((item)=><tr key={item.id}><td><strong>{item.title}</strong><br/><small>{item.location?.city}, {item.location?.province} · {item.type}</small></td><td><StatusBadge kind="publication" value={item.publicationStatus}/><br/><small>Revisi: {item.latestRevisionStatus}</small></td><td>{formatRupiah(item.askingPrice)}</td><td>v{item.version}</td><td><div className={styles.actions}><Link href={"/dashboard/properties/"+item.id}>Buka editor</Link></div></td></tr>)}</tbody></table>:<p className={styles.empty}>Belum ada properti.</p>}</section></>}

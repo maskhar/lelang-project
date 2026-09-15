@@ -98,6 +98,7 @@ export async function staffListings(actor: Actor) {
     updatedAt: properties.updatedAt,
     title: propertyRevisions.title,
     location: propertyRevisions.listingSnapshot,
+    latestRevisionStatus: propertyRevisions.status,
   }).from(properties)
     .innerJoin(propertyRevisions, eq(propertyRevisions.propertyId, properties.id))
     .where(sql`${propertyRevisions.revisionNumber} = (select max(latest.revision_number) from app.property_revisions latest where latest.property_id = ${properties.id})`)
