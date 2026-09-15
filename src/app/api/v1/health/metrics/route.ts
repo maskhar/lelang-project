@@ -1,0 +1,5 @@
+import { NextResponse } from "next/server";
+import { getDatabasePool } from "@/server/db/client";
+
+export const runtime="nodejs"; export const dynamic="force-dynamic";
+export async function GET(request:Request){if(!process.env.METRICS_TOKEN||request.headers.get("authorization")!=="Bearer "+process.env.METRICS_TOKEN)return new NextResponse(null,{status:404});try{const result=await getDatabasePool().query("select (select count(*) from app.properties where publication_status='published') published,(select count(*) from app.leads where status='new') new_leads,(select count(*) from app.outbox_events where status in ('pending','processing')) outbox_pending,(select count(*) from app.outbox_events where status='dead_letter') outbox_dead_letter");const metrics=Object.entries(result.rows[0]).map(([key,value])=>"lelang_"+key+" "+value).join("\n")+"\n";return new NextResponse(metrics,{headers:{"Content-Type":"text/plain; version=0.0.4","Cache-Control":"no-store"}});}catch{return new NextResponse("lelang_database_up 0\n",{status:503,headers:{"Content-Type":"text/plain; version=0.0.4","Cache-Control":"no-store"}});}}
