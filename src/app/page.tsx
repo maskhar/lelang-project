@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { formatRupiah } from "@/lib/currency";
 import { propertyTypes } from "@/lib/properties";
 import { catalogView, type CatalogView as Property, type PublicListing } from "@/lib/catalog-view";
+import { apiRequest } from "@/components/api-client";
 
 function money(value: number) { return formatRupiah(value); }
 function remaining(end: number, now: number) { const diff = end - now; if (diff <= 0) return "Lelang berakhir"; const hours = Math.floor(diff / 3600000); const minutes = Math.floor((diff % 3600000) / 60000); return hours >= 24 ? `${Math.floor(hours / 24)} hari ${hours % 24} jam` : `${hours} jam ${minutes} menit`; }
+type CatalogResponse = { items: PublicListing[]; nextCursor: string | null };
 
 function PropertyIcon({ type }: { type: string }) {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
@@ -20,17 +22,21 @@ function PropertyIcon({ type }: { type: string }) {
 
 export default function Home() {
   const [catalogProperties, setCatalogProperties] = useState<Property[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
   const [type, setType] = useState("");
   const [price, setPrice] = useState("");
   const [mode, setMode] = useState("");
   const [sort, setSort] = useState("terbaru");
-  const [selected, setSelected] = useState<Property | null>(null);
-  const [activePhoto, setActivePhoto] = useState(0);
-  const galleryImages = selected?.imageUrls?.length ? selected.imageUrls : selected?.imageUrl ? [selected.imageUrl] : [];
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
-  const modalRef = useRef<HTMLElement>(null);
+  const requestController = useRef<AbortController | null>(null);
+  const moreLock = useRef(false);
+  const [loadedKey, setLoadedKey] = useState("");
+  const [catalogError, setCatalogError] = useState("");
+  const [retryCount, setRetryCount] = useState(0);
   const [startedAt] = useState(0);
   const [now, setNow] = useState(startedAt);
   const scrollToSection = (id: string) => {
@@ -38,61 +44,51 @@ export default function Home() {
     setMenuOpen(false);
   };
 
+  const catalogParameters = useCallback((cursor?: string) => {
+    const parameters = new URLSearchParams({ limit: "24" });
+    if (query.trim()) parameters.set("q", query.trim());
+    if (type) parameters.set("type", type);
+    if (mode) parameters.set("saleMode", mode === "lelang" ? "auction" : "direct_sale");
+    if (price === "low") parameters.set("maxPrice", "499999999");
+    if (price === "mid") { parameters.set("minPrice", "500000000"); parameters.set("maxPrice", "1000000000"); }
+    if (price === "high") { parameters.set("minPrice", "1000000000"); parameters.set("maxPrice", "3000000000"); }
+    if (price === "premium") parameters.set("minPrice", "3000000000");
+    parameters.set("sort", sort === "harga-asc" ? "price_asc" : sort === "harga-desc" ? "price_desc" : sort === "berakhir" ? "deadline" : "newest");
+    if (cursor) parameters.set("cursor", cursor);
+    return parameters;
+  }, [mode, price, query, sort, type]);
+
+  const parametersKey = catalogParameters().toString();
+  const pending = loading || loadedKey !== parametersKey;
+
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/v1/properties?limit=100", { cache: "no-store", signal: controller.signal })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Gagal memuat data.")))
-      .then((data) => setCatalogProperties(data.data.items.map((item: PublicListing) => catalogView(item))))
-      .catch(() => { if (!controller.signal.aborted) setNotice("Katalog belum dapat dimuat. Muat ulang untuk mencoba lagi."); });
-    return () => controller.abort();
-  }, []);
+    requestController.current = controller;
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      setCatalogError("");
+      apiRequest<CatalogResponse>("/api/v1/properties?" + catalogParameters(), { cache: "no-store", signal: controller.signal })
+        .then((data) => { if (!controller.signal.aborted) { setCatalogProperties(data.items.map(catalogView)); setNextCursor(data.nextCursor); setLoadedKey(parametersKey); } })
+        .catch(() => { if (!controller.signal.aborted) { setCatalogProperties([]); setNextCursor(null); setLoadedKey(parametersKey); setCatalogError("Katalog belum dapat dimuat. Coba lagi."); } })
+        .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    }, 300);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [catalogParameters, parametersKey, retryCount]);
+
+  async function loadMore() {
+    const controller = requestController.current;
+    if (!nextCursor || pending || moreLock.current || !controller || controller.signal.aborted) return;
+    moreLock.current = true;
+    setLoadingMore(true);
+    try {
+      const data = await apiRequest<CatalogResponse>("/api/v1/properties?" + catalogParameters(nextCursor), { cache: "no-store", signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setCatalogProperties((current) => Array.from(new Map([...current, ...data.items.map(catalogView)].map((item) => [item.id, item])).values()));
+      setNextCursor(data.nextCursor);
+    } catch { if (!controller.signal.aborted) setNotice("Properti berikutnya belum dapat dimuat. Coba lagi."); }
+    finally { moreLock.current = false; setLoadingMore(false); }
+  }
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30000); return () => window.clearInterval(timer); }, []);
-  useEffect(() => {
-    if (!selected) return;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    modalRef.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelected(null);
-      if (event.key === "Tab") {
-        const buttons = modalRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
-        if (!buttons?.length) return;
-        const first = buttons[0];
-        const last = buttons[buttons.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus({ preventScroll: true });
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus({ preventScroll: true });
-        }
-      }
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", closeOnEscape);
-      previousFocus?.focus({ preventScroll: true });
-    };
-  }, [selected]);
-
-  const filtered = useMemo(() => {
-    const normalized = query.toLowerCase();
-    const result = catalogProperties.filter((item) => {
-      const displayPrice = item.mode === "lelang" ? item.bid ?? item.price : item.price;
-      if (mode && item.mode !== mode) return false;
-      if (type && item.type !== type) return false;
-      if (normalized && ![item.title, item.city, item.type].some((value) => value.toLowerCase().includes(normalized))) return false;
-      if (price === "low" && displayPrice >= 500_000_000) return false;
-      if (price === "mid" && (displayPrice < 500_000_000 || displayPrice > 1_000_000_000)) return false;
-      if (price === "high" && (displayPrice < 1_000_000_000 || displayPrice > 3_000_000_000)) return false;
-      if (price === "premium" && displayPrice < 3_000_000_000) return false;
-      return true;
-    });
-    return result.sort((a, b) => sort === "harga-asc" ? a.price - b.price : sort === "harga-desc" ? b.price - a.price : sort === "berakhir" ? (Date.parse(a.auctionEndsAt || "") || Number.MAX_SAFE_INTEGER) - (Date.parse(b.auctionEndsAt || "") || Number.MAX_SAFE_INTEGER) : (Date.parse(b.createdAt || "") || 0) - (Date.parse(a.createdAt || "") || 0));
-  }, [catalogProperties, mode, price, query, sort, type]);
-
   return <>
     <header className="site-header home-header">
       <a className="brand" href="#top" aria-label="Lelangan Properti — Beranda"><Image className="brand-logo" src="/image/logo/white/LP-logo-large-white.png" alt="Lelangan Properti" width={1944} height={809} sizes="(max-width: 720px) 140px, 165px" priority /></a>
@@ -124,34 +120,34 @@ export default function Home() {
           </aside>
         </div>
         <div className="search-panel" role="search" aria-label="Cari properti">
-          <label><span>Lokasi atau kata kunci</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Malang, rumah 2 lantai..." /></label>
+          <label><span>Kata kunci properti</span><input value={query} onChange={(event) => setQuery(event.target.value)} maxLength={100} placeholder="Rumah 2 lantai..." /></label>
           <label><span>Jenis properti</span><select value={type} onChange={(event) => setType(event.target.value)}><option value="">Semua jenis</option>{propertyTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
           <label><span>Rentang harga</span><select value={price} onChange={(event) => setPrice(event.target.value)}><option value="">Semua harga</option><option value="low">Di bawah Rp 500 jt</option><option value="mid">Rp 500 jt – 1 M</option><option value="high">Rp 1 M – 3 M</option><option value="premium">Di atas Rp 3 M</option></select></label>
           <a className="button dark" href="#properti">Cari Properti</a>
         </div>
-        <div className="stats"><div><strong>{catalogProperties.filter((item) => item.mode !== "terjual").length}</strong><span>properti aktif</span></div><div><strong>{new Set(catalogProperties.map((item) => item.city.split(",")[0])).size}</strong><span>kota di Indonesia</span></div><div><strong>{catalogProperties.filter((item) => item.mode === "lelang").length}</strong><span>lelang berjalan</span></div><div><strong>TERBUKA</strong><span>informasi aset pendukung</span></div></div>
+        <div className="stats"><div><strong>LELANG</strong><span>pemasaran kompetitif</span></div><div><strong>JUAL</strong><span>penawaran langsung</span></div><div><strong>TERPILIH</strong><span>aset yang telah ditinjau</span></div><div><strong>TERBUKA</strong><span>informasi aset pendukung</span></div></div>
       </section>
 
       <section className="property-section" id="properti">
         <div className="chips" aria-label="Filter jenis properti"><button className={!type ? "active" : ""} onClick={() => setType("")}>Semua</button>{propertyTypes.map((item) => <button className={type === item ? "active" : ""} onClick={() => setType(item)} key={item}>{item}</button>)}</div>
         <div className="listing-toolbar"><div className="tabs"><button className={!mode ? "active" : ""} onClick={() => setMode("")}>Semua</button><button className={mode === "lelang" ? "active" : ""} onClick={() => setMode("lelang")}>Lelang</button><button className={mode === "langsung" ? "active" : ""} onClick={() => setMode("langsung")}>Jual Langsung</button></div><label className="sort">Urutkan <select value={sort} onChange={(event) => setSort(event.target.value)}><option value="terbaru">Terbaru</option><option value="harga-asc">Harga terendah</option><option value="harga-desc">Harga tertinggi</option><option value="berakhir">Segera berakhir</option></select></label></div>
-        <p className="result-count">Menampilkan {filtered.length} properti</p>
-        {filtered.length ? <div className="property-grid">{filtered.map((item) => {
+        <p className="result-count" aria-live="polite">{pending ? "Memuat properti…" : `Menampilkan ${catalogProperties.length} properti yang dimuat`}</p>
+        {catalogError && !pending && <div className="empty" role="alert"><p>{catalogError}</p><button type="button" className="button dark" onClick={() => { setLoading(true); setRetryCount((count) => count + 1); }}>Coba lagi</button></div>}
+        {!pending && catalogProperties.length ? <><div className="property-grid">{catalogProperties.map((item) => {
           const end = item.auctionEndsAt ? Date.parse(item.auctionEndsAt) : startedAt;
           return <Link className="property-card" href={`/properti/${item.id}`} key={item.id}>
             <div className={`property-visual type-${item.type.toLowerCase()}${(item.imageUrls?.[0] || item.imageUrl) ? " has-image" : ""}`} style={(item.imageUrls?.[0] || item.imageUrl) ? { backgroundImage: `url(${item.imageUrls?.[0] || item.imageUrl})` } : undefined}><span className={`badge ${item.mode}`}>{item.mode === "lelang" ? "Lelang Aktif" : item.mode === "langsung" ? "Jual Langsung" : "Terjual"}</span><PropertyIcon type={item.type} /><small>{item.type}</small></div>
-            <div className="property-body"><span className="location">⌖ {item.city}</span><h2>{item.title}</h2><div className="meta">{item.land > 0 && <span>LT {item.land} m²</span>}{item.build > 0 && <span>LB {item.build} m²</span>}{item.beds > 0 && <span>{item.beds} KT</span>}</div><div className="price-row"><div><small>{item.mode === "lelang" ? "Harga acuan" : "Harga"}</small><strong>{money(item.price)}</strong></div>{item.mode === "lelang" && <time>{remaining(end, now)}</time>}</div><span className="card-button">Lihat Detail</span></div>
+            <div className="property-body"><span className="location">⌖ {item.city}</span><h2>{item.title}</h2><div className="meta">{item.land > 0 && <span>LT {item.land} m²</span>}{item.build > 0 && <span>LB {item.build} m²</span>}{item.beds > 0 && <span>{item.beds} KT</span>}</div><div className="price-row"><div><small>{item.mode === "lelang" ? "Harga acuan" : "Harga"}</small><strong>{money(item.price)}</strong></div>{item.mode === "lelang" && <time dateTime={item.auctionEndsAt || undefined}>{item.auctionEndsAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(new Date(end)) + " WIB" : "Jadwal belum tersedia"}{now > 0 && item.auctionEndsAt && <><br />{remaining(end, now)}</>}</time>}</div><span className="card-button">Lihat Detail</span></div>
           </Link>;
-        })}</div> : <div className="empty"><h2>Belum ada properti yang cocok</h2><p>Ubah kata kunci atau filter pencarian.</p></div>}
+        })}</div>{nextCursor && <div className="catalog-more"><button type="button" className="button dark" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "Memuat…" : "Muat lebih banyak"}</button></div>}</> : !pending && !catalogError && <div className="empty"><h2>Belum ada properti yang cocok</h2><p>Ubah kata kunci atau filter pencarian.</p></div>}
       </section>
 
-      <section className="how" id="cara-kerja"><div className="section-heading"><span className="eyebrow dark-text">PROSES TERSTRUKTUR</span><h2>Cara kerja lelang, dari daftar sampai serah terima</h2><p>Setiap langkah tercatat sehingga penawar dan penjual mengetahui posisi transaksi.</p></div><div className="steps">{[["01", "Daftar & verifikasi", "Buat akun dan lengkapi identitas sebagai peserta lelang."], ["02", "Pilih & tawar", "Tinjau dokumen lalu ajukan penawaran sebelum waktu berakhir."], ["03", "Menangkan lelang", "Penawar tertinggi dihubungi tim untuk konfirmasi resmi."], ["04", "Pembayaran", "Selesaikan pembayaran dan terima dokumen kepemilikan."]].map(([number, title, text]) => <div className="step" key={number}><span>{number}</span><h3>{title}</h3><p>{text}</p></div>)}</div></section>
+      <section className="how" id="cara-kerja"><div className="section-heading"><span className="eyebrow dark-text">PROSES TERSTRUKTUR</span><h2>Dari pencarian properti hingga tindak lanjut</h2><p>Platform ini menyediakan katalog dan pengiriman minat, bukan sistem bidding atau pembayaran.</p></div><div className="steps">{[["01", "Cari properti", "Gunakan filter jenis, harga, dan mode pemasaran."], ["02", "Pelajari detail", "Tinjau informasi properti dan jadwal yang tercantum."], ["03", "Kirim minat", "Isi formulir pada detail properti agar staf dapat menghubungi Anda."], ["04", "Tindak lanjut", "Bahas informasi dan proses berikutnya dengan staf di luar platform."]].map(([number, title, text]) => <div className="step" key={number}><span>{number}</span><h3>{title}</h3><p>{text}</p></div>)}</div></section>
       <section className="seller" id="jual"><div><span className="eyebrow">UNTUK PEMILIK ASET</span><h2>Punya properti untuk dijual atau dilelang?</h2><p>Daftarkan aset dan jangkau pencari properti yang siap menawar.</p></div><button className="button light" onClick={() => setNotice("Mode prototype: pendaftaran aset belum tersedia. Tidak ada data yang dikirim.")}>Daftarkan Properti</button></section>
     </main>
 
     <footer id="kontak" className="home-footer"><div><Image src="/image/logo/color/LP-logo-large-color.png" alt="Lelang Properti" width={1944} height={809} className="footer-logo" /><p>Platform pencarian dan transaksi properti dengan proses transparan.</p></div><div><b>Jelajahi</b><a href="#properti">Cari Properti</a><a href="#cara-kerja">Cara Kerja</a></div><div><b>Kontak</b><a href="mailto:halo@lelangproperti.id">halo@lelangproperti.id</a><a href="tel:+6281200000000">+62 812-0000-0000</a><Link href="/kebijakan-privasi">Kebijakan Privasi</Link></div><small>© 2026 Lelang Properti</small></footer>
 
-    {selected && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}><section ref={modalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="modal-close" onClick={() => setSelected(null)} aria-label="Tutup detail">×</button><div className={`modal-visual type-${selected.type.toLowerCase()}${galleryImages[activePhoto] ? " has-image" : ""}`} style={galleryImages[activePhoto] ? { backgroundImage: `url(${galleryImages[activePhoto]})` } : undefined}><PropertyIcon type={selected.type} /></div>{galleryImages.length > 1 && <div className="gallery-thumbnails" aria-label="Galeri foto properti">{galleryImages.map((url, index) => <button key={url} type="button" aria-label={`Lihat foto ${index + 1}`} aria-pressed={activePhoto === index} onClick={() => setActivePhoto(index)} style={{ backgroundImage: `url(${url})` }}><span>{index + 1}</span></button>)}</div>}<div className="modal-content"><span className="location">⌖ {selected.city}</span><h2 id="modal-title">{selected.title}</h2><div className="modal-meta">{selected.land > 0 && <div><strong>{selected.land} m²</strong><span>Luas tanah</span></div>}{selected.build > 0 && <div><strong>{selected.build} m²</strong><span>Luas bangunan</span></div>}<div><strong>{selected.type}</strong><span>Jenis properti</span></div></div><p>{selected.desc}</p><div className="modal-price"><div><small>{selected.mode === "lelang" ? `Penawaran tertinggi · ${selected.bidders} penawar` : "Harga"}</small><strong>{money(selected.mode === "lelang" ? selected.bid ?? selected.price : selected.price)}</strong></div></div><button className="button dark wide" onClick={() => { setSelected(null); setNotice("Mode prototype: transaksi belum tersedia. Tidak ada penawaran atau pembayaran yang dikirim."); }}>{selected.mode === "lelang" ? "Ajukan Penawaran" : selected.mode === "terjual" ? "Informasi Properti Terjual" : "Hubungi Penjual"}</button></div></section></div>}
     {notice && <div className="demo-notice" role="status">{notice}<button aria-label="Tutup pemberitahuan" onClick={() => setNotice("")}>×</button></div>}
   </>;
 }

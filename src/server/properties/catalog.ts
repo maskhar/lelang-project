@@ -1,9 +1,9 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, gt, gte, ilike, isNotNull, lt, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, ilike, inArray, isNotNull, lt, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/server/db/client";
-import { properties, propertyRevisions } from "@/server/db/schema";
+import { properties, propertyRevisions, propertyMedia } from "@/server/db/schema";
 import { AuthHttpError } from "@/server/auth/http";
 import { propertyTypes } from "@/lib/properties";
 
@@ -58,5 +58,9 @@ export async function catalog(parameters: URLSearchParams) {
   const items = rows.slice(0, filters.limit);
   const last = items.at(-1);
   const nextCursor = rows.length > filters.limit && last ? Buffer.from(JSON.stringify({ id: last.id, value: priceSort ? last.askingPrice : filters.sort === "deadline" ? last.auctionEndsAt?.toISOString() : last.publishedAt?.toISOString(), fingerprint })).toString("base64url") : null;
-  return { items, nextCursor };
+  const covers = items.length ? await getDatabase().select({ propertyId: properties.id, id: propertyMedia.id, isCover: propertyMedia.isCover })
+    .from(properties).innerJoin(propertyMedia, eq(propertyMedia.revisionId, properties.publishedRevisionId))
+    .where(and(inArray(properties.id, items.map((item) => item.id)), eq(properties.publicationStatus, "published"), eq(propertyMedia.status, "ready"), eq(propertyMedia.isCover, true))) : [];
+  const coversByProperty = new Map(covers.map((cover) => [cover.propertyId, { id: cover.id, isCover: cover.isCover }]));
+  return { items: items.map((item) => ({ ...item, media: coversByProperty.has(item.id) ? [coversByProperty.get(item.id)!] : [] })), nextCursor };
 }
