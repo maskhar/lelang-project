@@ -1,5 +1,5 @@
 import "server-only";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/server/db/client";
@@ -12,6 +12,7 @@ type Listing = z.infer<typeof listingInput>;
 const missing = () => new AuthHttpError(404, "NOT_FOUND", "Data tidak ditemukan.");
 const conflict = () => new AuthHttpError(409, "VERSION_CONFLICT", "Data berubah. Muat ulang sebelum menyimpan.");
 const regionKey = (value: string) => createHash("sha256").update(value.toLocaleLowerCase("id-ID")).digest("hex").slice(0, 10);
+const generatedSku = () => "LP-" + randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase();
 const snapshot = (input: Listing) => ({ city: input.city, province: input.province, saleMode: input.saleMode, type: input.type, askingPrice: input.askingPrice });
 function revisionValues(input: Listing) {
   return { title: input.title, description: input.description, landAreaM2: input.landAreaM2, buildingAreaM2: input.buildingAreaM2, bedroomCount: input.bedroomCount, auctionStartsAt: input.auctionStartsAt ? new Date(input.auctionStartsAt) : null, auctionEndsAt: input.auctionEndsAt ? new Date(input.auctionEndsAt) : null };
@@ -21,8 +22,18 @@ export async function createListing(actor: Actor, input: Listing) {
   requireRole(actor, "editor", "admin");
   input = listingInput.parse(input);
   return getDatabase().transaction(async (transaction) => {
-    const slug = randomUUID();
-    const [property] = await transaction.insert(properties).values({ slug, createdBy: actor.profileId, saleMode: input.saleMode, type: input.type, provinceCode: regionKey(input.province), cityCode: regionKey(input.city), askingPrice: input.askingPrice }).returning();
+    let property: typeof properties.$inferSelect | undefined;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const slug = randomBytes(8).toString("hex");
+      const sku = input.sku || generatedSku();
+      [property] = await transaction.insert(properties).values({ slug, sku, createdBy: actor.profileId, saleMode: input.saleMode, type: input.type, provinceCode: regionKey(input.province), cityCode: regionKey(input.city), askingPrice: input.askingPrice }).onConflictDoNothing().returning();
+      if (property) break;
+      if (input.sku) {
+        const [existing] = await transaction.select({ id: properties.id }).from(properties).where(eq(properties.sku, sku)).limit(1);
+        if (existing) throw new AuthHttpError(409, "SKU_CONFLICT", "SKU sudah digunakan oleh properti lain.");
+      }
+    }
+    if (!property) throw new AuthHttpError(503, "SKU_GENERATION_FAILED", "Kode properti belum dapat dibuat. Coba simpan kembali.");
     const [revision] = await transaction.insert(propertyRevisions).values({ propertyId: property.id, revisionNumber: 1, ...revisionValues(input), listingSnapshot: snapshot(input) }).returning();
     await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property.created", entityType: "property", entityId: property.id });
     return { property, revision };
@@ -38,10 +49,13 @@ export async function editListing(actor: Actor, id: string, version: number, inp
     if (!property) throw missing();
     if (property.version !== version) throw conflict();
     if (property.publicationStatus === "archived") throw new AuthHttpError(409, "INVALID_TRANSITION", "Properti diarsipkan.");
+    const sku = input.sku || property.sku;
+    const [existingSku] = await transaction.select({ id: properties.id }).from(properties).where(eq(properties.sku, sku)).limit(1);
+    if (existingSku && existingSku.id !== id) throw new AuthHttpError(409, "SKU_CONFLICT", "SKU sudah digunakan oleh properti lain.");
     const [latest] = await transaction.select().from(propertyRevisions).where(eq(propertyRevisions.propertyId, id)).orderBy(desc(propertyRevisions.revisionNumber)).limit(1);
     if (latest?.status === "pending") throw new AuthHttpError(409, "REVIEW_PENDING", "Revisi sedang diperiksa.");
     const [revision] = await transaction.insert(propertyRevisions).values({ propertyId: id, revisionNumber: (latest?.revisionNumber ?? 0) + 1, ...revisionValues(input), listingSnapshot: snapshot(input) }).returning();
-    await transaction.update(properties).set({ publicationStatus: property.publishedRevisionId ? property.publicationStatus : "draft", version: version + 1, updatedAt: new Date() }).where(eq(properties.id, id));
+    await transaction.update(properties).set({ sku, publicationStatus: property.publishedRevisionId ? property.publicationStatus : "draft", version: version + 1, updatedAt: new Date() }).where(eq(properties.id, id));
     await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property.edited", entityType: "property", entityId: id, metadata: { revisionId: revision.id } });
     return { revision, version: version + 1 };
   });
@@ -78,7 +92,7 @@ export async function transitionListing(actor: Actor, id: string, input: z.infer
 }
 
 export async function publicListing(slug: string) {
-  const [row] = await getDatabase().select({ id: properties.id, revisionId: properties.publishedRevisionId, slug: properties.slug, saleMode: properties.saleMode, availabilityStatus: properties.availabilityStatus, type: properties.type, askingPrice: properties.askingPrice, publishedAt: properties.publishedAt, title: propertyRevisions.title, description: propertyRevisions.description, location: propertyRevisions.listingSnapshot, landAreaM2: propertyRevisions.landAreaM2, buildingAreaM2: propertyRevisions.buildingAreaM2, bedroomCount: propertyRevisions.bedroomCount, auctionStartsAt: propertyRevisions.auctionStartsAt, auctionEndsAt: propertyRevisions.auctionEndsAt }).from(properties).innerJoin(propertyRevisions, eq(properties.publishedRevisionId, propertyRevisions.id)).where(and(eq(properties.slug, slug), eq(properties.publicationStatus, "published")));
+  const [row] = await getDatabase().select({ id: properties.id, sku: properties.sku, revisionId: properties.publishedRevisionId, slug: properties.slug, saleMode: properties.saleMode, availabilityStatus: properties.availabilityStatus, type: properties.type, askingPrice: properties.askingPrice, publishedAt: properties.publishedAt, title: propertyRevisions.title, description: propertyRevisions.description, location: propertyRevisions.listingSnapshot, landAreaM2: propertyRevisions.landAreaM2, buildingAreaM2: propertyRevisions.buildingAreaM2, bedroomCount: propertyRevisions.bedroomCount, auctionStartsAt: propertyRevisions.auctionStartsAt, auctionEndsAt: propertyRevisions.auctionEndsAt }).from(properties).innerJoin(propertyRevisions, eq(properties.publishedRevisionId, propertyRevisions.id)).where(and(eq(properties.slug, slug), eq(properties.publicationStatus, "published")));
   if (!row) throw missing();
   const media = row.revisionId ? await getDatabase().select({ id: propertyMedia.id, contentType: propertyMedia.contentType, sortOrder: propertyMedia.sortOrder, isCover: propertyMedia.isCover }).from(propertyMedia).where(and(eq(propertyMedia.revisionId, row.revisionId), eq(propertyMedia.status, "ready"))).orderBy(asc(propertyMedia.sortOrder), asc(propertyMedia.id)) : [];
   return { ...row, media };
@@ -89,6 +103,7 @@ export async function staffListings(actor: Actor) {
   return getDatabase().select({
     id: properties.id,
     slug: properties.slug,
+    sku: properties.sku,
     saleMode: properties.saleMode,
     publicationStatus: properties.publicationStatus,
     availabilityStatus: properties.availabilityStatus,

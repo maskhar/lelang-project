@@ -31,6 +31,8 @@ async function main() {
     await client.query("insert into app.user_roles(user_id,role) values($1,'admin')", [profileId]);
     const created = await createListing(actor, listing); propertyId = created.property.id;
     assert.equal(created.property.version, 1); assert.equal(created.revision.revisionNumber, 1);
+    assert.match(created.property.sku, /^LP-[A-Z0-9]{8}$/);
+    await assert.rejects(createListing(actor, { ...listing, sku: created.property.sku }), (error) => error instanceof AuthHttpError && error.code === "SKU_CONFLICT");
     await assert.rejects(editListing(actor, propertyId, 99, listing), (error) => error instanceof AuthHttpError && error.code === "VERSION_CONFLICT");
     const edited = await editListing(actor, propertyId, 1, { ...listing, title: "Rumah pengujian backend revisi" }); assert.equal(edited.version, 2);
     const submitted = await transitionListing(actor, propertyId, { version: 2, action: "submit" }); assert.equal(submitted.version, 3);

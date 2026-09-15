@@ -7,6 +7,7 @@ import { profiles } from "./users";
 export const properties = appSchema.table("properties", {
   id: uuid("id").primaryKey().defaultRandom(),
   slug: varchar("slug", { length: 160 }).notNull(),
+  sku: varchar("sku", { length: 40 }).notNull().default(sql`'LP-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))`),
   createdBy: uuid("created_by").notNull().references(() => profiles.id),
   saleMode: saleMode("sale_mode").notNull(),
   publicationStatus: publicationStatus("publication_status").notNull().default("draft"),
@@ -24,6 +25,7 @@ export const properties = appSchema.table("properties", {
   check("properties_price_safe", sql`${table.askingPrice} between 1 and 9007199254740991`),
   check("properties_version_positive", sql`${table.version} > 0`),
   uniqueIndex("properties_slug_uidx").on(table.slug),
+  uniqueIndex("properties_sku_uidx").on(table.sku),
   index("properties_catalog_idx").on(table.publicationStatus, table.availabilityStatus, table.publishedAt, table.id),
   index("properties_location_idx").on(table.provinceCode, table.cityCode),
   index("properties_price_idx").on(table.askingPrice),

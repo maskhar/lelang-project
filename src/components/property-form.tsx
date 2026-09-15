@@ -25,12 +25,14 @@ export default function PropertyForm({ initial, onSave, disabled = false }: { in
     const fields = new FormData(event.currentTarget);
     setSaving(true); setError(null);
     try {
-      const value = listingInput.parse({ title: fields.get("title"), description: fields.get("description"), type: fields.get("type"), city: city.trim(), province, saleMode: mode, askingPrice: Number(fields.get("askingPrice")), landAreaM2: Number(fields.get("landAreaM2")), buildingAreaM2: Number(fields.get("buildingAreaM2")), bedroomCount: Number(fields.get("bedroomCount")), auctionStartsAt: mode === "auction" ? new Date(String(fields.get("auctionStartsAt"))).toISOString() : null, auctionEndsAt: mode === "auction" ? new Date(String(fields.get("auctionEndsAt"))).toISOString() : null });
+      const rawSku = String(fields.get("sku") || "").trim();
+      const value = listingInput.parse({ sku: rawSku || undefined, title: fields.get("title"), description: fields.get("description"), type: fields.get("type"), city: city.trim(), province, saleMode: mode, askingPrice: Number(fields.get("askingPrice")), landAreaM2: Number(fields.get("landAreaM2")), buildingAreaM2: Number(fields.get("buildingAreaM2")), bedroomCount: Number(fields.get("bedroomCount")), auctionStartsAt: mode === "auction" ? new Date(String(fields.get("auctionStartsAt"))).toISOString() : null, auctionEndsAt: mode === "auction" ? new Date(String(fields.get("auctionEndsAt"))).toISOString() : null });
       await onSave(value);
     } catch (reason) { setError(reason); }
     finally { setSaving(false); }
   }
   return <form className={styles.form} onSubmit={submit}><fieldset disabled={saving || disabled}>
+    <label>SKU produk<input name="sku" pattern="LP-[A-Za-z0-9]{6,32}" maxLength={35} defaultValue={initial?.sku} placeholder="Kosongkan untuk otomatis" aria-describedby="sku-help" /></label><p id="sku-help" className={styles.full}>Format manual: LP- diikuti 6–32 huruf atau angka. Kosongkan saat membuat properti untuk generate otomatis.</p>
     <label className={styles.full}>Judul<input name="title" required minLength={5} maxLength={120} defaultValue={initial?.title} /></label>
     <label>Kota/kabupaten<input value={city} onChange={(event) => setCity(event.target.value)} list="editor-cities" required /><datalist id="editor-cities">{indonesianCities.map((item) => <option value={item.city} key={item.city}>{item.province}</option>)}</datalist></label>
     <label>Provinsi<input value={province} readOnly /></label>

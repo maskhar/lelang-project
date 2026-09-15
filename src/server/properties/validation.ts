@@ -3,6 +3,7 @@ import { cityProvinceByName } from "@/lib/indonesia-cities";
 import { propertyTypes } from "@/lib/properties";
 
 export const listingInput = z.object({
+  sku: z.string().trim().toUpperCase().regex(/^LP-[A-Z0-9]{6,32}$/, "SKU harus memakai format LP- diikuti 6–32 huruf atau angka.").optional(),
   title: z.string().trim().min(5).max(120),
   description: z.string().trim().min(20).max(4000),
   type: z.string().refine((value) => propertyTypes.includes(value)),

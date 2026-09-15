@@ -33,3 +33,4 @@
 @media(max-width:900px){.detailLayout{display:flex;flex-direction:column}.detailMain,.sidebar{width:100%}.sidebar{position:static;max-height:none;overflow:visible;order:-1}.sidebar .summary{display:block}}
 @media(max-width:600px){}
 @media print{.detailLayout{display:block}.sidebar{position:static;max-height:none;overflow:visible}}
+.sku{margin:6px 0 22px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;font-weight:700;letter-spacing:.06em;color:#5b6472}
