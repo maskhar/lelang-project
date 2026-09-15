@@ -1,0 +1,1 @@
+ALTER TABLE "app"."property_revisions" ADD COLUMN "listing_snapshot" jsonb;
