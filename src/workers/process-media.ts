@@ -28,8 +28,8 @@ export async function processMedia(mediaId: string) {
       const metadata = await image.metadata();
       if (!metadata.width || !metadata.height) valid = false;
       else {
-        const watermarkWidth = Math.max(160, Math.round(metadata.width * 0.28));
-        const watermark = await sharp(logo).resize({ width: watermarkWidth, withoutEnlargement: true }).png().toBuffer();
+        const watermarkWidth = Math.min(metadata.width, Math.max(160, Math.round(metadata.width * 0.28)));
+        const watermark = await sharp(logo).resize({ width: watermarkWidth, height: metadata.height, fit: "inside", withoutEnlargement: true }).png().toBuffer();
         const encoded = await image.composite([{ input: watermark, gravity: "center", blend: "over" }]).webp({ quality: 78, effort: 5 }).toBuffer();
         const quarantinePath = path.join(process.env.STORAGE_ROOT!, "quarantine", item.object_path);
         await writeFile(quarantinePath, encoded);
