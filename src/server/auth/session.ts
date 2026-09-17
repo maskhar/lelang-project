@@ -1,8 +1,20 @@
 import "server-only";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { parseAuthSecrets } from "@/server/env";
 
 export const sessionCookieName = process.env.AUTH_SESSION_COOKIE_NAME || "lelang_session";
 export const sessionDurationSeconds = 60 * 60 * 8;
+export const sessionMaxActivePerUser = 5;
+export const sessionLastSeenThrottleMs = 5 * 60 * 1000;
+
+export function clientFingerprint(request: Pick<Request, "headers">) {
+  const secret = parseAuthSecrets().rateLimitSecret;
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0].trim();
+  const ip = forwarded || request.headers.get("x-real-ip")?.trim() || "";
+  const userAgent = request.headers.get("user-agent")?.slice(0, 512) || "";
+  const digest = (value: string) => value ? createHmac("sha256", secret).update(value).digest("hex") : null;
+  return { ipHash: digest(ip), userAgentHash: digest(userAgent) };
+}
 
 export function createSessionToken() {
   return randomBytes(32).toString("base64url");

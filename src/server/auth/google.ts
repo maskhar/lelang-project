@@ -36,7 +36,7 @@ export async function startGoogleLogin() {
     expiresAt: new Date(Date.now() + googleDurationSeconds * 1000),
   });
   const url = client.generateAuthUrl({
-    scope: ["openid", "email", "profile"], access_type: "online", prompt: "select_account", state,
+    scope: ["openid", "email"], access_type: "online", prompt: "select_account", state,
     code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: CodeChallengeMethod.S256,
   });
   const destination = new URL(url);
@@ -62,14 +62,15 @@ export async function verifyGoogleCode(code: string, transaction: { nonceHash: s
     if (!tokens.id_token) throw new Error("Missing ID token.");
     const ticket = await client.verifyIdToken({ idToken: tokens.id_token, audience: process.env.GOOGLE_CLIENT_ID });
     const parsed = z.object({
-      sub: z.string().min(1).max(255), email: z.email().max(320), email_verified: z.literal(true), nonce: z.string(),
+      sub: z.string().min(1).max(255), email: z.email().max(320), name: z.string().min(1).max(120).optional(), picture: z.url().max(2048).optional(), email_verified: z.literal(true), nonce: z.string(),
       exp: z.number(), iat: z.number(), azp: z.string().optional(), hd: z.string().min(1).optional(),
     }).parse(ticket.getPayload());
     const now = Date.now() / 1000;
     if (!hasMatchingToken(parsed.nonce, transaction.nonceHash) || parsed.exp <= now || parsed.iat > now + 60 || (parsed.azp && parsed.azp !== process.env.GOOGLE_CLIENT_ID)) throw new Error("Invalid claims.");
     const email = parsed.email.toLowerCase();
-    return { subject: parsed.sub, email, authoritativeEmail: email.endsWith("@gmail.com") || !!parsed.hd };
-  } catch {
+    return { subject: parsed.sub, email, name: parsed.name || email.split("@")[0], avatarUrl: parsed.picture || null, authoritativeEmail: email.endsWith("@gmail.com") || !!parsed.hd };
+  } catch (error) {
+    console.error(JSON.stringify({ event: "auth.google.verify.failure", reason: error instanceof Error ? error.message : "unknown" }));
     throw new AuthHttpError(401, "GOOGLE_AUTH_FAILED", "Verifikasi Google gagal. Mulai login kembali.");
   }
 }

@@ -9,6 +9,7 @@ export const properties = appSchema.table("properties", {
   slug: varchar("slug", { length: 160 }).notNull(),
   sku: varchar("sku", { length: 40 }).notNull().default(sql`'LP-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))`),
   createdBy: uuid("created_by").notNull().references(() => profiles.id),
+  ownerId: uuid("owner_id").references(() => profiles.id),
   saleMode: saleMode("sale_mode").notNull(),
   publicationStatus: publicationStatus("publication_status").notNull().default("draft"),
   availabilityStatus: availabilityStatus("availability_status").notNull().default("available"),
@@ -38,7 +39,7 @@ export const propertyRevisions = appSchema.table("property_revisions", {
   title: varchar("title", { length: 120 }).notNull(),
   description: text("description").notNull(),
   address: text("address"),
-  listingSnapshot: jsonb("listing_snapshot").$type<{ city: string; province: string; saleMode: "auction" | "direct_sale"; type: string; askingPrice: number }>(),
+  listingSnapshot: jsonb("listing_snapshot").$type<{ city: string; province: string; address?: string; latitude?: number | null; longitude?: number | null; saleMode: "auction" | "direct_sale"; type: string; askingPrice: number }>(),
   landAreaM2: integer("land_area_m2").notNull().default(0),
   buildingAreaM2: integer("building_area_m2").notNull().default(0),
   bedroomCount: smallint("bedroom_count").notNull().default(0),
@@ -75,3 +76,5 @@ export const propertyMedia = appSchema.table("property_media", {
   uniqueIndex("property_media_object_uidx").on(table.bucket, table.objectPath),
   index("property_media_revision_idx").on(table.revisionId, table.status, table.sortOrder),
 ]);
+
+

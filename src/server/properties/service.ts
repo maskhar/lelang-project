@@ -1,9 +1,9 @@
 import "server-only";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/server/db/client";
-import { properties, propertyRevisions, propertyMedia, auditLogs, outboxEvents, leads } from "@/server/db/schema";
+import { properties, propertyRevisions, propertyMedia, auditLogs, outboxEvents, leads, profiles } from "@/server/db/schema";
 import { requireRole, type Actor } from "@/server/auth/actor";
 import { AuthHttpError } from "@/server/auth/http";
 import { listingInput, transitionInput, leadInput, identifier } from "./validation";
@@ -11,22 +11,24 @@ import { listingInput, transitionInput, leadInput, identifier } from "./validati
 type Listing = z.infer<typeof listingInput>;
 const missing = () => new AuthHttpError(404, "NOT_FOUND", "Data tidak ditemukan.");
 const conflict = () => new AuthHttpError(409, "VERSION_CONFLICT", "Data berubah. Muat ulang sebelum menyimpan.");
+const denied = () => new AuthHttpError(403, "PROPERTY_ACCESS_DENIED", "Anda tidak memiliki akses ke properti ini.");
+const isStaff = (actor: Actor) => actor.roles.includes("editor") || actor.roles.includes("admin");
 const regionKey = (value: string) => createHash("sha256").update(value.toLocaleLowerCase("id-ID")).digest("hex").slice(0, 10);
 const generatedSku = () => "LP-" + randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase();
-const snapshot = (input: Listing) => ({ city: input.city, province: input.province, saleMode: input.saleMode, type: input.type, askingPrice: input.askingPrice });
+const snapshot = (input: Listing) => ({ city: input.city, province: input.province, address: input.address, latitude: input.latitude, longitude: input.longitude, saleMode: input.saleMode, type: input.type, askingPrice: input.askingPrice });
 function revisionValues(input: Listing) {
-  return { title: input.title, description: input.description, landAreaM2: input.landAreaM2, buildingAreaM2: input.buildingAreaM2, bedroomCount: input.bedroomCount, auctionStartsAt: input.auctionStartsAt ? new Date(input.auctionStartsAt) : null, auctionEndsAt: input.auctionEndsAt ? new Date(input.auctionEndsAt) : null };
+  return { title: input.title, description: input.description, address: input.address, landAreaM2: input.landAreaM2, buildingAreaM2: input.buildingAreaM2, bedroomCount: input.bedroomCount, auctionStartsAt: input.auctionStartsAt ? new Date(input.auctionStartsAt) : null, auctionEndsAt: input.auctionEndsAt ? new Date(input.auctionEndsAt) : null };
 }
 
 export async function createListing(actor: Actor, input: Listing) {
-  requireRole(actor, "editor", "admin");
+  requireRole(actor, "editor", "admin", "owner");
   input = listingInput.parse(input);
   return getDatabase().transaction(async (transaction) => {
     let property: typeof properties.$inferSelect | undefined;
     for (let attempt = 0; attempt < 5; attempt++) {
       const slug = randomBytes(8).toString("hex");
       const sku = input.sku || generatedSku();
-      [property] = await transaction.insert(properties).values({ slug, sku, createdBy: actor.profileId, saleMode: input.saleMode, type: input.type, provinceCode: regionKey(input.province), cityCode: regionKey(input.city), askingPrice: input.askingPrice }).onConflictDoNothing().returning();
+      [property] = await transaction.insert(properties).values({ slug, sku, createdBy: actor.profileId, ownerId: actor.roles.includes("owner") ? actor.profileId : null, saleMode: input.saleMode, type: input.type, provinceCode: regionKey(input.province), cityCode: regionKey(input.city), askingPrice: input.askingPrice }).onConflictDoNothing().returning();
       if (property) break;
       if (input.sku) {
         const [existing] = await transaction.select({ id: properties.id }).from(properties).where(eq(properties.sku, sku)).limit(1);
@@ -43,10 +45,11 @@ export async function createListing(actor: Actor, input: Listing) {
 export async function editListing(actor: Actor, id: string, version: number, input: Listing) {
   id = identifier.parse(id);
   input = listingInput.parse(input);
-  requireRole(actor, "editor", "admin");
+  requireRole(actor, "editor", "admin", "owner");
   return getDatabase().transaction(async (transaction) => {
     const [property] = await transaction.select().from(properties).where(eq(properties.id, id)).for("update");
     if (!property) throw missing();
+    if (!isStaff(actor) && property.ownerId !== actor.profileId) throw denied();
     if (property.version !== version) throw conflict();
     if (property.publicationStatus === "archived") throw new AuthHttpError(409, "INVALID_TRANSITION", "Properti diarsipkan.");
     const sku = input.sku || property.sku;
@@ -64,11 +67,12 @@ export async function editListing(actor: Actor, id: string, version: number, inp
 export async function transitionListing(actor: Actor, id: string, input: z.infer<typeof transitionInput>) {
   id = identifier.parse(id);
   input = transitionInput.parse(input);
-  requireRole(actor, ...(input.action === "submit" ? ["editor", "admin"] as const : ["admin"] as const));
+  requireRole(actor, ...(input.action === "submit" ? ["editor", "admin", "owner"] as const : ["admin"] as const));
   if (["revision", "reject", "archive"].includes(input.action) && !input.reason) throw new AuthHttpError(422, "REASON_REQUIRED", "Alasan wajib diisi.");
   return getDatabase().transaction(async (transaction) => {
     const [property] = await transaction.select().from(properties).where(eq(properties.id, id)).for("update");
     if (!property) throw missing();
+    if (input.action === "submit" && !isStaff(actor) && property.ownerId !== actor.profileId) throw denied();
     if (property.version !== input.version) throw conflict();
     const allowed = input.action === "submit" ? ["draft", "revision_required"] : input.action === "archive" ? ["draft", "pending_review", "revision_required", "published", "paused", "rejected"] : ["pending_review"];
     const [revision] = await transaction.select().from(propertyRevisions).where(eq(propertyRevisions.propertyId, id)).orderBy(desc(propertyRevisions.revisionNumber)).limit(1);
@@ -113,8 +117,8 @@ export async function markListingSold(actor: Actor, id: string, value: unknown) 
   });
 }
 
-export async function staffListings(actor: Actor) {
-  requireRole(actor, "editor", "admin");
+export async function staffListings(actor: Actor, filters: { status?: string; q?: string } = {}) {
+  requireRole(actor, "editor", "admin", "owner");
   return getDatabase().select({
     id: properties.id,
     slug: properties.slug,
@@ -131,26 +135,69 @@ export async function staffListings(actor: Actor) {
     latestRevisionStatus: propertyRevisions.status,
   }).from(properties)
     .innerJoin(propertyRevisions, eq(propertyRevisions.propertyId, properties.id))
-    .where(sql`${propertyRevisions.revisionNumber} = (select max(latest.revision_number) from app.property_revisions latest where latest.property_id = ${properties.id})`)
+    .where(and(sql`${propertyRevisions.revisionNumber} = (select max(latest.revision_number) from app.property_revisions latest where latest.property_id = ${properties.id})`, filters.status ? eq(properties.publicationStatus, filters.status as any) : undefined, filters.q ? sql`${propertyRevisions.title} ilike ${"%" + filters.q + "%"}` : undefined, isStaff(actor) ? undefined : eq(properties.ownerId, actor.profileId)))
     .orderBy(desc(properties.updatedAt), asc(properties.id)).limit(100);
 }
 
-export async function createLead(input: z.infer<typeof leadInput>) {
+export async function bulkArchiveListings(actor: Actor, ids: string[]) {
+  requireRole(actor, "admin", "editor");
+  const validIds = z.array(identifier).min(1).max(100).parse(ids);
+  return getDatabase().transaction(async (transaction) => {
+    const rows = await transaction.update(properties).set({ publicationStatus: "archived", updatedAt: new Date() }).where(inArray(properties.id, validIds)).returning({ id: properties.id });
+    if (rows.length) await transaction.insert(auditLogs).values(rows.map((row) => ({ actorId: actor.profileId, action: "property.archive", entityType: "property", entityId: row.id, metadata: { bulk: true } })));
+    return rows;
+  });
+}
+
+export async function createLead(input: z.infer<typeof leadInput>, buyerId?: string) {
   input = leadInput.parse(input);
   return getDatabase().transaction(async (transaction) => {
     const [property] = await transaction.select().from(properties).where(and(eq(properties.id, input.propertyId), eq(properties.publicationStatus, "published"), eq(properties.availabilityStatus, "available"))).for("share");
     if (!property) throw missing();
-    const [lead] = await transaction.insert(leads).values({ propertyId: input.propertyId, name: input.name, email: input.email, phone: input.phone, message: input.message, consentAt: new Date() }).returning({ id: leads.id });
+    const [lead] = await transaction.insert(leads).values({ propertyId: input.propertyId, name: input.name, email: input.email, buyerId: buyerId || null, phone: input.phone, message: input.message, consentAt: new Date() }).returning({ id: leads.id });
     await transaction.insert(auditLogs).values({ action: "lead.created", entityType: "lead", entityId: lead.id });
     await transaction.insert(outboxEvents).values({ type: "lead.created", payload: { leadId: lead.id, propertyId: input.propertyId } });
     return lead;
   });
 }
 
+export async function dashboardLeads(actor: Actor) {
+  requireRole(actor, "admin", "editor", "owner", "agent", "buyer");
+  const database = getDatabase();
+  const ownerOnly = actor.roles.includes("owner") && !isStaff(actor);
+  const buyerOnly = actor.roles.includes("buyer") && !isStaff(actor);
+  return database.select({ id: leads.id, propertyId: leads.propertyId, name: leads.name, email: leads.email, phone: leads.phone, message: leads.message, status: leads.status, createdAt: leads.createdAt }).from(leads).innerJoin(properties, eq(properties.id, leads.propertyId)).where(buyerOnly ? eq(leads.buyerId, actor.profileId) : ownerOnly ? eq(properties.ownerId, actor.profileId) : undefined).orderBy(desc(leads.createdAt)).limit(100);
+}
+
 export async function dashboardSummary(actor: Actor) {
   requireRole(actor, "editor", "admin");
   const database = getDatabase();
+  const isAdmin = actor.roles.includes("admin");
   const listings = await database.select({ status: properties.publicationStatus, count: sql<number>`count(*)::integer` }).from(properties).groupBy(properties.publicationStatus);
+  const availability = await database.select({ status: properties.availabilityStatus, count: sql<number>`count(*)::integer` }).from(properties).where(eq(properties.publicationStatus, "published")).groupBy(properties.availabilityStatus);
+  const saleModes = await database.select({ mode: properties.saleMode, count: sql<number>`count(*)::integer` }).from(properties).groupBy(properties.saleMode);
   const inquiries = await database.select({ status: leads.status, count: sql<number>`count(*)::integer` }).from(leads).groupBy(leads.status);
-  return { listings, leads: inquiries };
+  const media = await database.select({ status: propertyMedia.status, count: sql<number>`count(*)::integer` }).from(propertyMedia).groupBy(propertyMedia.status);
+  const [outbox] = await database.select({
+    pending: sql<number>`count(*) filter (where ${outboxEvents.status} in ('pending','processing'))::integer`,
+    deadLetter: sql<number>`count(*) filter (where ${outboxEvents.status} = 'dead_letter')::integer`,
+  }).from(outboxEvents);
+  const activity = await database.execute<{ day: string; leads: number; published: number; logins: number }>(sql`
+    with days as (select generate_series((current_date - interval '13 days')::date, current_date, interval '1 day')::date as day)
+    select to_char(days.day, 'YYYY-MM-DD') as day,
+      (select count(*)::integer from app.leads l where l.created_at::date = days.day) as leads,
+      (select count(*)::integer from app.properties p where p.published_at::date = days.day) as published,
+      (select count(*)::integer from app.audit_logs a where a.action = 'auth.google.login' and a.created_at::date = days.day) as logins
+    from days order by days.day`);
+  const users = isAdmin ? await database.select({
+    total: sql<number>`count(*)::integer`,
+    active: sql<number>`count(*) filter (where ${profiles.status} = 'active')::integer`,
+    disabled: sql<number>`count(*) filter (where ${profiles.status} = 'disabled')::integer`,
+    admins: sql<number>`count(*) filter (where exists (select 1 from app.user_roles r where r.user_id = ${profiles.id} and r.role = 'admin'))::integer`,
+    editors: sql<number>`count(*) filter (where exists (select 1 from app.user_roles r where r.user_id = ${profiles.id} and r.role = 'editor'))::integer`,
+    activeSessions: sql<number>`(select count(*) from app.user_sessions s where s.revoked_at is null and s.expires_at > now())::integer`,
+  }).from(profiles).then((rows) => rows[0]) : null;
+  return { listings, availability, saleModes, leads: inquiries, media, outbox, activity: activity.rows, users };
 }
+
+

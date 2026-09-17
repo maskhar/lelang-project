@@ -7,6 +7,7 @@ export const profiles = appSchema.table("profiles", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: varchar("email", { length: 320 }).notNull(),
   name: varchar("name", { length: 120 }).notNull(),
+  avatarUrl: varchar("avatar_url", { length: 2048 }),
   phone: varchar("phone", { length: 30 }),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   status: userStatus("status").notNull().default("active"),
@@ -32,6 +33,7 @@ export const userSessions = appSchema.table("user_sessions", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
   ipHash: varchar("ip_hash", { length: 64 }),
+  ipAddress: varchar("ip_address", { length: 64 }),
   userAgentHash: varchar("user_agent_hash", { length: 64 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -60,3 +62,15 @@ export const oauthTransactions = appSchema.table("oauth_transactions", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index("oauth_transactions_expiry_idx").on(table.expiresAt)]);
+export const accessRequests = appSchema.table("access_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id").notNull().references(() => profiles.id, { onDelete: "cascade" }),
+  requestedRole: userRole("requested_role").notNull(),
+  reason: varchar("reason", { length: 1000 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  reviewedBy: uuid("reviewed_by").references(() => profiles.id),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewNote: varchar("review_note", { length: 1000 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("access_requests_profile_idx").on(table.profileId, table.status), index("access_requests_status_idx").on(table.status, table.createdAt)]);
