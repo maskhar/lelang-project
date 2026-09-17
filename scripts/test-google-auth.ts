@@ -66,7 +66,7 @@ async function main() {
       assert.equal(destination.origin, "https://accounts.google.com");
       assert.equal(destination.searchParams.get("code_challenge_method"), "S256");
       assert.equal(destination.searchParams.get("redirect_uri"), process.env.GOOGLE_REDIRECT_URI);
-      assert.equal(destination.searchParams.get("scope"), "openid email profile");
+      assert.equal(destination.searchParams.get("scope"), "openid email", "Only minimal OIDC scope requested");
       const cookie = response.cookies.get(google.googleCookieName)!.value;
       expectedVerifier = cookie.split(".")[1];
       assert.equal(destination.searchParams.get("code_challenge"), createHash("sha256").update(expectedVerifier).digest("base64url"));
@@ -106,7 +106,7 @@ async function main() {
     const good = await prepare();
     const success = await finish(good);
     assert.equal(success.status, 307);
-    assert.equal(success.headers.get("location"), origin + "/account");
+    assert.equal(success.headers.get("location"), origin + "/dashboard", "Editor/admin lands on dashboard");
     const session = success.cookies.get("lelang_session")!;
     assert.equal(session.httpOnly, true);
     assert.equal(session.sameSite, "lax");

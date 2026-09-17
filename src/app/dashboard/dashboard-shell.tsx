@@ -7,9 +7,18 @@ import { useEffect, useRef, useState } from "react";
 import type { Actor } from "@/server/auth/actor";
 import styles from "./dashboard-shell.module.css";
 
-const mainLinks = [
+const staffLinks = [
   { href: "/dashboard/properties", label: "Properti" },
   { href: "/dashboard/review", label: "Review" },
+  { href: "/dashboard/leads", label: "Lead" },
+];
+
+const ownerLinks = [
+  { href: "/dashboard/properties", label: "Properti" },
+  { href: "/dashboard/leads", label: "Lead" },
+];
+
+const buyerLinks = [
   { href: "/dashboard/leads", label: "Lead" },
   { href: "/dashboard/watchlist", label: "Watchlist" },
 ];
@@ -21,6 +30,14 @@ const adminLinks = [
   { href: "/dashboard/access-requests", label: "Pengajuan akses" },
 ];
 
+function linksFor(roles: Actor["roles"]) {
+  const isStaff = roles.includes("editor") || roles.includes("admin");
+  const links = isStaff ? [...staffLinks] : roles.includes("owner") ? [...ownerLinks] : [];
+  if (!isStaff && roles.includes("buyer")) for (const link of buyerLinks) if (!links.some((existing) => existing.href === link.href)) links.push(link);
+  if (roles.includes("admin")) links.push(...adminLinks);
+  return links;
+}
+
 export default function DashboardShell({ actor, children }: { actor: Actor; children: React.ReactNode }) {
   const pathname = usePathname();
   const [openPath, setOpenPath] = useState<string | null>(null);
@@ -30,7 +47,7 @@ export default function DashboardShell({ actor, children }: { actor: Actor; chil
     setOpenPath(null);
     menuButton.current?.focus();
   };
-  const links = actor.roles.includes("admin") ? [...mainLinks, ...adminLinks] : mainLinks;
+  const links = linksFor(actor.roles);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {

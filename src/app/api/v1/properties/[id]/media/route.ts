@@ -13,6 +13,7 @@ import { getDatabase } from "@/server/db/client";
 import { auditLogs, properties, propertyMedia, propertyRevisions } from "@/server/db/schema";
 import { discard, promote, saveQuarantine } from "@/server/storage/local";
 import { identifier } from "@/server/properties/validation";
+import { assertListingAccess } from "@/server/properties/policy";
 import { limitedMediaForm } from "@/server/media-upload";
 
 export const runtime = "nodejs";
@@ -20,10 +21,13 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   let stored: Awaited<ReturnType<typeof saveQuarantine>> | undefined;
   try {
-    const actor = requireRole(await getAuthenticatedActor(), "editor", "admin");
+    const actor = requireRole(await getAuthenticatedActor(), "editor", "admin", "owner");
     requireCsrf(request);
     const id = identifier.parse((await context.params).id);
     await consumeRateLimit("upload:" + actor.profileId, 60, 3600);
+    const [ownedProperty] = await getDatabase().select({ ownerId: properties.ownerId }).from(properties).where(eq(properties.id, id));
+    if (!ownedProperty) throw new AuthHttpError(404, "NOT_FOUND", "Properti tidak ditemukan.");
+    assertListingAccess(actor, ownedProperty);
     if (!request.headers.get("content-type")?.startsWith("multipart/form-data")) throw new AuthHttpError(415, "UNSUPPORTED_MEDIA_TYPE", "Gunakan multipart/form-data.");
     const form = await limitedMediaForm(request);
     const file = form.get("file");
@@ -47,6 +51,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const result = await getDatabase().transaction(async (transaction) => {
       const [property] = await transaction.select().from(properties).where(eq(properties.id, id)).for("update");
       if (!property) throw new AuthHttpError(404, "NOT_FOUND", "Properti tidak ditemukan.");
+      assertListingAccess(actor, property);
       if (property.version !== version) throw new AuthHttpError(409, "VERSION_CONFLICT", "Muat ulang properti.");
       if (property.publicationStatus === "archived") throw new AuthHttpError(409, "INVALID_TRANSITION", "Properti diarsipkan.");
       const [revision] = await transaction.select().from(propertyRevisions).where(eq(propertyRevisions.propertyId, id)).orderBy(desc(propertyRevisions.revisionNumber)).limit(1);

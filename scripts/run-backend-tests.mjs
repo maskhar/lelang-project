@@ -12,6 +12,8 @@ function docker(args, options = {}) {
 }
 let started = false;
 async function main() {
+  const unit = spawnSync(process.execPath, ["--conditions=react-server", "--import=tsx", "--test", "tests/unit/*.test.ts"], { stdio: "inherit", windowsHide: true });
+  if (unit.status !== 0) { process.exitCode = unit.status ?? 1; return; }
   let client;
   try {
     docker(["run", "--rm", "-d", "--name", name, "-p", "127.0.0.1:25433:5432", "--env", "POSTGRES_PASSWORD", "--env", "POSTGRES_DB=lelang_test", "postgres:17.6-bookworm"], { env: { ...process.env, POSTGRES_PASSWORD: password } });

@@ -43,6 +43,55 @@
       "when": 1789531200000,
       "tag": "0005_add_property_sku",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789579323923,
+      "tag": "0006_ambitious_viper",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789581458938,
+      "tag": "0007_panoramic_jigsaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789582188616,
+      "tag": "0008_nebulous_wendell_vaughn",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789582785401,
+      "tag": "0009_spooky_morlocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789618547463,
+      "tag": "0010_bouncy_stepford_cuckoos",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789649492429,
+      "tag": "0011_brown_blazing_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789650248501,
+      "tag": "0012_redundant_goliath",
+      "breakpoints": true
     }
   ]
 }

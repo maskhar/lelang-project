@@ -8,19 +8,21 @@ import { apiErrorResponse } from "@/server/api";
 import { getDatabase } from "@/server/db/client";
 import { auditLogs, outboxEvents, properties, propertyMedia, propertyRevisions } from "@/server/db/schema";
 import { identifier } from "@/server/properties/validation";
+import { assertListingAccess } from "@/server/properties/policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const inputSchema = z.object({ version: z.number().int().positive(), mediaIds: z.array(z.uuid()).max(20) }).strict().refine((input) => new Set(input.mediaIds).size === input.mediaIds.length);
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const actor = requireRole(await getAuthenticatedActor(), "editor", "admin");
+    const actor = requireRole(await getAuthenticatedActor(), "editor", "admin", "owner");
     requireCsrf(request);
     const id = identifier.parse((await context.params).id);
     const input = inputSchema.parse(await readAuthJson(request));
     const data = await getDatabase().transaction(async (transaction) => {
       const [property] = await transaction.select().from(properties).where(eq(properties.id, id)).for("update");
       if (!property) throw new AuthHttpError(404, "NOT_FOUND", "Properti tidak ditemukan.");
+      assertListingAccess(actor, property);
       if (property.version !== input.version) throw new AuthHttpError(409, "VERSION_CONFLICT", "Muat ulang properti.");
       const [revision] = await transaction.select().from(propertyRevisions).where(eq(propertyRevisions.propertyId, id)).orderBy(desc(propertyRevisions.revisionNumber)).limit(1);
       if (!revision || property.publicationStatus === "archived" || !["draft", "revision_required"].includes(revision.status)) throw new AuthHttpError(409, "REVISION_LOCKED", "Foto hanya dapat diubah pada draft.");

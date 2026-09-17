@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
     "lelangproperti.net",
     "lelangproperti.org",
     "localhost:3003",
+    "10.10.10.102:3003",
   ],
   turbopack: { root: process.cwd() },
   async headers() {

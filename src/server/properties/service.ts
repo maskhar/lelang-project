@@ -7,12 +7,11 @@ import { properties, propertyRevisions, propertyMedia, auditLogs, outboxEvents, 
 import { requireRole, type Actor } from "@/server/auth/actor";
 import { AuthHttpError } from "@/server/auth/http";
 import { listingInput, transitionInput, leadInput, identifier } from "./validation";
+import { denied, isAgentOnly, isBuyerOnly, isOwnerOnly, isStaff } from "./policy";
 
 type Listing = z.infer<typeof listingInput>;
 const missing = () => new AuthHttpError(404, "NOT_FOUND", "Data tidak ditemukan.");
 const conflict = () => new AuthHttpError(409, "VERSION_CONFLICT", "Data berubah. Muat ulang sebelum menyimpan.");
-const denied = () => new AuthHttpError(403, "PROPERTY_ACCESS_DENIED", "Anda tidak memiliki akses ke properti ini.");
-const isStaff = (actor: Actor) => actor.roles.includes("editor") || actor.roles.includes("admin");
 const regionKey = (value: string) => createHash("sha256").update(value.toLocaleLowerCase("id-ID")).digest("hex").slice(0, 10);
 const generatedSku = () => "LP-" + randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase();
 const snapshot = (input: Listing) => ({ city: input.city, province: input.province, address: input.address, latitude: input.latitude, longitude: input.longitude, saleMode: input.saleMode, type: input.type, askingPrice: input.askingPrice });
@@ -163,9 +162,10 @@ export async function createLead(input: z.infer<typeof leadInput>, buyerId?: str
 
 export async function dashboardLeads(actor: Actor) {
   requireRole(actor, "admin", "editor", "owner", "agent", "buyer");
+  if (isAgentOnly(actor)) return [];
   const database = getDatabase();
-  const ownerOnly = actor.roles.includes("owner") && !isStaff(actor);
-  const buyerOnly = actor.roles.includes("buyer") && !isStaff(actor);
+  const ownerOnly = isOwnerOnly(actor);
+  const buyerOnly = isBuyerOnly(actor);
   return database.select({ id: leads.id, propertyId: leads.propertyId, name: leads.name, email: leads.email, phone: leads.phone, message: leads.message, status: leads.status, createdAt: leads.createdAt }).from(leads).innerJoin(properties, eq(properties.id, leads.propertyId)).where(buyerOnly ? eq(leads.buyerId, actor.profileId) : ownerOnly ? eq(properties.ownerId, actor.profileId) : undefined).orderBy(desc(leads.createdAt)).limit(100);
 }
 

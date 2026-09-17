@@ -84,9 +84,9 @@ Schema PostgreSQL aplikasi adalah `app`; journal Drizzle adalah `drizzle`. Tidak
 ### 6.2 Session
 
 - Login menghasilkan token acak minimal 256-bit. Browser hanya menerima token; database menyimpan SHA-256 token hash.
-- Cookie memakai `HttpOnly`, `Secure` pada HTTPS, `SameSite=Lax`, path `/`, dan expiry delapan jam awal. Cookie name dikonfigurasi dengan `AUTH_SESSION_COOKIE_NAME`.
+- Cookie memakai `HttpOnly`, `Secure` pada HTTPS, `SameSite=Lax`, path `/`, dan expiry delapan jam awal. Cookie name dikonfigurasi dengan `AUTH_SESSION_COOKIE_NAME`. Cookie CSRF terpisah memakai `SameSite=Strict` karena tidak perlu ikut redirect OAuth lintas situs — perbedaan kebijakan ini disengaja.
 - Setiap request privat mencocokkan hash, expiry, revokedAt, dan status profile dari PostgreSQL. Role dibaca server dari `user_roles`, bukan data browser/cookie claim.
-- Logout mencabut satu session. Disable akun dan ubah role mencabut semua session akun.
+- Logout mencabut satu session. Logout-all, disable akun, dan ubah role mencabut semua session akun. Batas lima session aktif per akun ditegakkan saat login.
 - Mutasi browser memeriksa Origin yang diizinkan serta token CSRF signed double-submit yang terikat session. Start/callback Google, lead, dan upload memakai rate limit dan audit event.
 
 ### 6.3 Endpoint auth

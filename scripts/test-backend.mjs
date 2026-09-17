@@ -71,10 +71,20 @@ async function main() {
     await deliverOutbox();
     const retry = await client.query("select status,attempts from app.outbox_events where type='lead.created'");
     assert.equal(retry.rows[0].status, "pending"); assert.equal(retry.rows[0].attempts, 1);
+    await client.query("update app.outbox_events set attempts=7, available_at=now() where type='lead.created'");
+    await deliverOutbox();
+    const dead = await client.query("select status,attempts from app.outbox_events where type='lead.created'");
+    assert.equal(dead.rows[0].status, "dead_letter"); assert.equal(dead.rows[0].attempts, 8);
+    const tamperedId = randomUUID();
+    const tampered = await saveQuarantine(new File([bytes], "tampered.png", { type: "image/png" }));
+    await client.query("insert into app.property_media(id,revision_id,bucket,object_path,content_type,size_bytes,checksum_sha256,is_cover) values($1,$2,'quarantine',$3,$4,$5,$6,false)", [tamperedId, edited.revision.id, tampered.objectPath, tampered.contentType, tampered.sizeBytes, "0".repeat(64)]);
+    await processMedia(tamperedId);
+    const rejected = await client.query("select status,bucket from app.property_media where id=$1", [tamperedId]);
+    assert.equal(rejected.rows[0].status, "rejected"); assert.equal(rejected.rows[0].bucket, "quarantine");
     const current = await client.query("select version from app.properties where id=$1", [propertyId]);
     await transitionListing(actor, propertyId, { version: current.rows[0].version, action: "archive", reason: "Selesai pengujian" });
     await assert.rejects(publicListing(created.property.slug), (error) => error.code === "NOT_FOUND");
-    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, SMTP retry.");
+    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, SMTP retry, dead-letter, checksum rejection.");
   } finally {
     if (propertyId) { await client.query("delete from app.outbox_events where payload->>'propertyId'=$1", [propertyId]); await client.query("delete from app.audit_logs where entity_id=$1 or actor_id=$2", [propertyId, profileId]); await client.query("delete from app.leads where property_id=$1", [propertyId]); await client.query("delete from app.properties where id=$1", [propertyId]); }
     if (storage.startsWith(path.join(os.tmpdir(), "lelang-backend-test-"))) await rm(storage, { recursive: true, force: true });

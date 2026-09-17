@@ -40,13 +40,29 @@ Login pertama hanya mengikat email Gmail atau Google Workspace dengan claim `hd`
 
 ## Alur API
 
-1. GET `/api/v1/auth/google/start` membuat transaksi 10 menit dan redirect ke Google dengan scope `openid email profile`.
+1. GET `/api/v1/auth/google/start` membuat transaksi 10 menit dan redirect ke Google dengan scope minimal `openid email`. Scope `profile` tidak diminta karena nama profil dikelola operator melalui CLI, bukan disinkronkan dari Google.
 2. Google kembali ke exact `/api/v1/auth/google/callback`. Backend mengonsumsi state sekali pakai, memeriksa cookie browser, PKCE, nonce, signature, issuer, audience, expiry, email verification, lalu mencari profile yang dipraotorisasi.
-3. Login sukses mengikat `sub` bila pertama kali, merotasi session browser, dan mengirim cookie HttpOnly. Access/refresh token Google tidak disimpan.
+3. Login sukses mengikat `sub` bila pertama kali, merotasi session browser, dan mengirim cookie HttpOnly. Access/refresh token Google tidak disimpan. Akun dengan role `editor`/`admin` diarahkan ke `/dashboard`; akun tanpa role staf diarahkan ke `/account`. Tujuan redirect ditentukan server dari role, tidak pernah dari parameter query, untuk mencegah open redirect.
 4. GET `/api/v1/me` membaca identitas dan role aplikasi.
-5. GET `/api/v1/auth/csrf`, lalu POST `/api/v1/auth/logout` dengan `X-CSRF-Token` untuk mencabut session.
+5. GET `/api/v1/auth/csrf`, lalu POST `/api/v1/auth/logout` dengan `X-CSRF-Token` untuk mencabut session berjalan, atau POST `/api/v1/auth/logout-all` untuk mencabut seluruh session akun.
+6. GET `/api/v1/me/sessions` menampilkan session aktif milik pemanggil (waktu masuk, aktivitas terakhir, expiry). `ip_hash` dan `user_agent_hash` disimpan sebagai HMAC dan tidak pernah dikembalikan ke client.
+
+Maksimal lima session aktif per akun; session tertua dicabut otomatis saat batas terlampaui. `last_seen_at` diperbarui paling sering satu kali per lima menit agar tidak menulis pada setiap request.
 
 Cookie Secure aktif pada origin HTTPS; localhost development dapat HTTP. CSRF berlaku satu jam dan dapat diperbarui tanpa memperpanjang expiry session delapan jam. Endpoint JSON membatasi body 8 KiB sebelum parsing.
+
+Cookie session memakai `SameSite=Lax` karena redirect balik dari Google harus membawa cookie; cookie CSRF memakai `SameSite=Strict` agar token tidak ikut terkirim pada navigasi lintas situs. Perbedaan ini disengaja — jangan disamakan.
+
+## Onboarding akun staf
+
+Tidak ada halaman registrasi mandiri, dan itu disengaja. Google hanya memverifikasi identitas; hak akses diberikan operator melalui CLI pada database development loopback.
+
+1. Operator menjalankan `npm run user:approve -- --email <email> --name <nama> --role admin|editor`. Perintah hanya menerima `DATABASE_MIGRATION_URL` pada `127.0.0.1:15432/lelang_properti_dev`.
+2. User membuka `/login` dan menekan "Lanjutkan dengan Google" memakai alamat Google yang sama persis dengan email yang disetujui.
+3. Login pertama mengikat `sub` Google ke profile tersebut secara permanen. Login berikutnya dicocokkan lewat `sub`, bukan email.
+4. `npm run user:role` mengubah role, `npm run user:disable` menonaktifkan akun; keduanya mencabut seluruh session aktif akun itu.
+
+Halaman `/dashboard/users` bersifat baca saja. Seluruh mutasi akun tetap melalui CLI oleh operator berwenang, sesuai aturan tidak membuat akun nyata tanpa target eksplisit.
 
 ## Izin database
 
@@ -74,4 +90,6 @@ scripts/verify-database.sql menguji insert/constraint/rollback pada database kos
 - Jalankan worker dengan `npm run worker:outbox -- --once` untuk satu batch atau tanpa `--once` untuk proses berkelanjutan. Worker memverifikasi media, mengirim event SMTP yang dikonfigurasi, retry exponential, lalu memakai `dead_letter` setelah delapan kegagalan.
 - `GET /api/v1/health/metrics` wajib header `Authorization: Bearer <METRICS_TOKEN>` dan tidak boleh diekspos publik. Endpoint menampilkan count listing publik, lead baru, outbox pending, dan dead letter.
 - Backup development lokal: tetapkan `BACKUP_ROOT` ke path absolut privat di luar repository, lalu jalankan `npm run backup:local`. Jalankan `npm run test:restore` untuk restore ke PostgreSQL Docker ephemeral. Drill staging/produksi tetap wajib sebelum rilis.
-- Validasi: `npm run typecheck`, `npm run lint`, `npm run db:check`, `npm run test:auth`, dan `npm run test:backend`. Test backend membuat container PostgreSQL ephemeral pada `127.0.0.1:25433`; tidak memakai volume development atau produksi.
+- Validasi: `npm run typecheck`, `npm run lint`, `npm run db:check`, `npm test`, `npm run test:auth`, dan `npm run test:backend`. `npm test` menjalankan unit test `node:test` di `tests/unit/` tanpa database maupun Docker. `npm run test:backend` menjalankan unit test itu lebih dulu, lalu membuat container PostgreSQL ephemeral pada `127.0.0.1:25433`; tidak memakai volume development atau produksi.
+- Konfigurasi environment divalidasi saat boot melalui `assertBootEnvironment()` di `src/instrumentation.ts` (scope `app`) dan `scripts/run-worker.ts` (scope `worker`, tanpa kredensial Google). Proses gagal cepat dan hanya menyebut nama variabel yang bermasalah, tidak pernah nilainya. Aturan origin, secret, dan `STORAGE_ROOT` terpusat di `src/server/env.ts`.
+- `esbuild` dipin melalui `overrides` pada `@esbuild-kit/core-utils` karena `drizzle-kit@0.31.10` masih menarik `@esbuild-kit/esm-loader` lama. Jangan hapus override tanpa memastikan `npm audit` tetap nol dan `npm run db:check` lulus.

@@ -22,7 +22,7 @@ function email() {
 
 function role() {
   const value = values.get("--role");
-  if (value !== "admin" && value !== "editor") usage();
+  if (!["admin", "editor", "owner", "agent", "buyer"].includes(value)) usage();
   return value;
 }
 
@@ -98,3 +98,4 @@ try {
 } finally {
   await client.end();
 }
+
