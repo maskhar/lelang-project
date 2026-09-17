@@ -83,3 +83,11 @@ Validasi: `npm run lint`, `npm run typecheck`, `npm test` (37 test) lulus. `npm 
 
 Belum: assignment agent, editor review workflow, notifikasi approval dan forced re-login, privacy consent/export/delete.
 
+## Review 17 September 2026 (fix login Google 503 dan logo blur)
+
+Bug: login Google asli (bukan callback dengan code palsu) selalu balas 503 `AUTH_UNAVAILABLE`. Sebab: `loginWithGoogle` (`src/server/auth/service.ts`) meng-update kolom `profiles.name` dan `profiles.avatar_url`, tapi `scripts/grant-runtime.sql` hanya memberi `UPDATE` pada `updated_at, email_verified_at`. Query gagal dengan "permission denied for table profiles", error generik ini jatuh ke fallback 503 di `authErrorResponse`. Fix: tambah `name, avatar_url` ke grant kolom, jalankan ulang `npm run db:grant:local`. Diverifikasi langsung ke Postgres dev: UPDATE keempat kolom sukses setelah grant baru.
+
+Sekalian: logo header `/login` blur karena `sizes="80px"` pada `<Image>` tidak cocok dengan lebar tampilan CSS 150px (`login.module.css` `.headerBrand img{width:150px}`) sehingga Next.js mengirim varian gambar terlalu kecil lalu di-upscale. Fix: `sizes="150px"` (`src/app/login/page.tsx`). Diverifikasi via browser preview: naturalWidth/cssWidth rasio 1.00 pada DPR 1.
+
+Belum diverifikasi end-to-end dengan akun Google asli (butuh akun approved); perbaikan divalidasi via inspeksi grant Postgres langsung dan reproduksi manual jalur `start` → `callback`.
+

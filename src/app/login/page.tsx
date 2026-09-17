@@ -8,7 +8,7 @@ export default function LoginPage() {
       <header className={styles.header}>
         <div className={styles.headerContent}>
           <Link href="/" className={styles.headerBrand}>
-            <Image src="/image/logo/color/LP-logo-large-color.png" alt="Lelang Properti" width={1944} height={809} sizes="80px" priority />
+            <Image src="/image/logo/color/LP-logo-large-color.png" alt="Lelang Properti" width={1944} height={809} sizes="150px" priority />
           </Link>
           <nav className={styles.headerNav} aria-label="Navigasi utama">
             <Link href="/">Beranda</Link>
