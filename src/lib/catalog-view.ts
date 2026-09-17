@@ -8,7 +8,7 @@ export type PublicListing = {
   id: string; slug: string; saleMode: string; availabilityStatus: string; title: string; type: string;
   askingPrice: number; description: string; landAreaM2: number; buildingAreaM2: number; bedroomCount: number;
   publishedAt: string | Date | null; auctionEndsAt: string | Date | null;
-  location: { city: string; province: string } | null;
+  location: { city: string; province: string; address?: string; latitude?: number | null; longitude?: number | null } | null;
   media?: { id: string; isCover: boolean }[];
 };
 export function catalogView(item: PublicListing): CatalogView {
