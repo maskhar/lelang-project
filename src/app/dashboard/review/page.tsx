@@ -1,8 +1,9 @@
-"use client";
-import { useEffect, useState } from "react";
-import { apiRequest } from "@/components/api-client";
-import ListingReview from "@/components/listing-review";
-import { StatusBadge } from "@/components/status-badge";
-import styles from "../dashboard-shell.module.css";
-type Item={id:string;title:string;version:number;publicationStatus:string;latestRevisionStatus:string;location:{city:string;province:string}|null};
-export default function ReviewPage(){const[items,setItems]=useState<Item[]>([]);const[error,setError]=useState("");async function load(){try{setItems((await apiRequest<Item[]>("/api/v1/admin/properties",{cache:"no-store"})).filter((item)=>item.latestRevisionStatus==="pending"));}catch(reason){setError(reason instanceof Error?reason.message:"Gagal memuat review.");}}useEffect(()=>{const controller=new AbortController();apiRequest<Item[]>("/api/v1/admin/properties",{cache:"no-store",signal:controller.signal}).then((data)=>{if(!controller.signal.aborted)setItems(data.filter((item)=>item.latestRevisionStatus==="pending"));}).catch((reason)=>{if(!controller.signal.aborted)setError(reason instanceof Error?reason.message:"Gagal memuat review.");});return()=>controller.abort();},[]);return <><div className={styles.heading}><div><h1>Antrean Review</h1><p>Revisi pending yang membutuhkan keputusan administrator.</p></div></div><div className={styles.grid}>{error&&<p className={styles.error}>{error}</p>}{items.length?items.map((item)=><article className={styles.panel} key={item.id}><StatusBadge kind="publication" value={item.publicationStatus}/><h2>{item.title}</h2><p>{item.location?.city}, {item.location?.province}</p><ListingReview id={item.id} version={item.version} onChanged={load}/></article>):<p className={styles.empty}>Tidak ada revisi menunggu review.</p>}</div></>}
+import { getAuthenticatedActor } from "@/server/auth/actor";
+import ReviewView from "./review-view";
+
+export const dynamic = "force-dynamic";
+
+export default async function ReviewPage() {
+  const actor = await getAuthenticatedActor();
+  return <ReviewView isAdmin={actor.roles.includes("admin")} />;
+}

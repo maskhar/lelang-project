@@ -22,8 +22,10 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   const [retryFiles, setRetryFiles] = useState<File[]>([]);
   const [formKey, setFormKey] = useState(0);
   const [draggedMediaId, setDraggedMediaId] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   async function load() { const data = await apiRequest<Detail>("/api/v1/properties/" + id + "/detail", { cache: "no-store" }); setDetail(data); return data; }
   useEffect(() => { const controller = new AbortController(); apiRequest<Detail>("/api/v1/properties/" + id + "/detail", { cache: "no-store", signal: controller.signal }).then(setDetail).catch((reason) => { if (!controller.signal.aborted) setError(reason); }); return () => controller.abort(); }, [id]);
+  useEffect(() => { const controller = new AbortController(); apiRequest<{ roles?: string[] }>("/api/v1/auth/session", { cache: "no-store", signal: controller.signal }).then((session) => { if (!controller.signal.aborted) setIsAdmin(Boolean(session.roles?.includes("admin"))); }).catch(() => undefined); return () => controller.abort(); }, []);
   const revision = detail?.revisions[0];
   const locked = !revision || revision.status === "pending" || detail?.property.publicationStatus === "archived";
   const mediaLocked = locked || !["draft", "revision_required"].includes(revision?.status || "");
@@ -68,7 +70,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
           <section className={styles.panel}>
             <div className={styles.panelHead}><h2>Data listing</h2>{locked && <span className={styles.badge} data-status="pending">Terkunci</span>}</div>
             <p>Setiap simpan membuat revisi baru. Foto revisi sebelumnya tidak disalin — unggah ulang sebelum review. Snapshot publik lama tetap tampil sampai disetujui.</p>
-            <PropertyForm key={id + ":" + formKey} initial={initial} onSave={save} disabled={locked || busy} statusActions={<><ListingReview id={id} version={detail.property.version} onChanged={async () => { await load(); }} />{detail.permissions.canMarkSold && detail.property.publicationStatus === "published" && detail.property.availabilityStatus === "available" && <PropertyAvailability id={id} version={detail.property.version} onChanged={async () => { await load(); }} />}</>} />
+            <PropertyForm key={id + ":" + formKey} initial={initial} onSave={save} disabled={locked || busy} statusActions={<><ListingReview id={id} version={detail.property.version} isAdmin={isAdmin} onChanged={async () => { await load(); }} />{detail.permissions.canMarkSold && detail.property.publicationStatus === "published" && detail.property.availabilityStatus === "available" && <PropertyAvailability id={id} version={detail.property.version} onChanged={async () => { await load(); }} />}</>} />
           </section>
 
 

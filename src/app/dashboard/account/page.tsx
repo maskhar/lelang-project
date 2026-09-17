@@ -3,6 +3,7 @@ import { getAuthenticatedActor } from "@/server/auth/actor";
 import { sessionCookieName } from "@/server/auth/session";
 import { listActiveSessions } from "@/server/auth/service";
 import { LogoutAllButton, LogoutButton } from "./logout-button";
+import { DeleteAccountButton, ExportDataButton } from "./privacy-actions";
 import styles from "./account.module.css";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,18 @@ export default async function AccountPage() {
           <h2>Keluar</h2>
           <p className={styles.hint}>Keluar dari perangkat ini saja, atau cabut semua sesi sekaligus bila perangkat lain hilang.</p>
           <div className={styles.actions}><LogoutButton /><LogoutAllButton /></div>
+        </section>
+
+        <section className={styles.section}>
+          <h2>Data pribadi</h2>
+          <p className={styles.hint}>Unduh salinan data akun Anda dalam format JSON: profil, hak akses, pengajuan akses, lead, watchlist, listing milik Anda, penugasan, dan sesi aktif. Lihat <a href="/kebijakan-privasi">Kebijakan Privasi</a>.</p>
+          <div className={styles.actions}><ExportDataButton /></div>
+        </section>
+
+        <section className={styles.section}>
+          <h2>Hapus akun</h2>
+          <p className={styles.hint}>Penghapusan mencabut semua sesi, memutus tautan akun Google, menghapus hak akses, serta menganonimkan nama, foto, dan nomor telepon. Catatan transaksi, lead, listing, dan audit tetap disimpan sesuai kewajiban hukum dan tidak lagi terhubung ke profil aktif. Tindakan ini tidak dapat dibatalkan.</p>
+          <DeleteAccountButton />
         </section>
       </div>
     </main>

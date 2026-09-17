@@ -162,11 +162,12 @@ export async function createLead(input: z.infer<typeof leadInput>, buyerId?: str
 
 export async function dashboardLeads(actor: Actor) {
   requireRole(actor, "admin", "editor", "owner", "agent", "buyer");
-  if (isAgentOnly(actor)) return [];
   const database = getDatabase();
+  const agentOnly = isAgentOnly(actor);
   const ownerOnly = isOwnerOnly(actor);
   const buyerOnly = isBuyerOnly(actor);
-  return database.select({ id: leads.id, propertyId: leads.propertyId, name: leads.name, email: leads.email, phone: leads.phone, message: leads.message, status: leads.status, createdAt: leads.createdAt }).from(leads).innerJoin(properties, eq(properties.id, leads.propertyId)).where(buyerOnly ? eq(leads.buyerId, actor.profileId) : ownerOnly ? eq(properties.ownerId, actor.profileId) : undefined).orderBy(desc(leads.createdAt)).limit(100);
+  const assigned = sql`exists (select 1 from app.property_assignments assignment where assignment.property_id = ${leads.propertyId} and assignment.agent_id = ${actor.profileId} and assignment.unassigned_at is null)`;
+  return database.select({ id: leads.id, propertyId: leads.propertyId, name: leads.name, email: leads.email, phone: leads.phone, message: leads.message, status: leads.status, createdAt: leads.createdAt }).from(leads).innerJoin(properties, eq(properties.id, leads.propertyId)).where(agentOnly ? assigned : buyerOnly ? eq(leads.buyerId, actor.profileId) : ownerOnly ? eq(properties.ownerId, actor.profileId) : undefined).orderBy(desc(leads.createdAt)).limit(100);
 }
 
 export async function dashboardSummary(actor: Actor) {

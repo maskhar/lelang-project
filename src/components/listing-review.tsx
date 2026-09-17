@@ -1,10 +1,14 @@
 "use client";
 import { useState } from "react";
 
-export default function ListingReview({ id, version, onChanged }: { id: string; version: number; onChanged: () => Promise<void> }) {
+const actions = [["submit", "Kirim review"], ["approve", "Publikasikan"], ["revision", "Minta revisi"], ["reject", "Tolak"], ["archive", "Arsipkan"]] as const;
+const adminOnly = ["approve", "revision", "reject", "archive"];
+
+export default function ListingReview({ id, version, isAdmin = true, onChanged }: { id: string; version: number; isAdmin?: boolean; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState("");
+  const visible = actions.filter(([action]) => isAdmin || !adminOnly.includes(action));
   async function act(action: string) {
     setBusy(true); setMessage("");
     try {
@@ -18,5 +22,5 @@ export default function ListingReview({ id, version, onChanged }: { id: string; 
     } catch (error) { setMessage(error instanceof Error ? error.message : "Aksi gagal."); }
     finally { setBusy(false); }
   }
-  return <div><label>Alasan review/arsip <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={1000} /></label><div>{[["submit", "Kirim review"], ["approve", "Publikasikan"], ["revision", "Minta revisi"], ["reject", "Tolak"], ["archive", "Arsipkan"]].map(([action, label]) => <button type="button" key={action} disabled={busy} onClick={() => void act(action)}>{label}</button>)}</div><p role="status">{message}</p><small>Publikasi/review/arsip memerlukan administrator. Server memvalidasi status dan versi.</small></div>;
+  return <div>{isAdmin && <label>Alasan review/arsip <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={1000} /></label>}<div>{visible.map(([action, label]) => <button type="button" key={action} disabled={busy} onClick={() => void act(action)}>{label}</button>)}</div><p role="status">{message}</p><small>{isAdmin ? "Publikasi/review/arsip memerlukan administrator. Server memvalidasi status dan versi." : "Editor menyiapkan dan mengirim revisi; keputusan publikasi, revisi, penolakan, dan arsip ada pada administrator."}</small></div>;
 }

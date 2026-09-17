@@ -42,14 +42,14 @@ Tanggal: 17 September 2026
 - [x] Tambah watchlist buyer: schema, API, dan dashboard page.
 - [x] Pisahkan role akses dashboard internal dari buyer/owner/agent.
 - [x] Policy lead: buyer hanya melihat minat miliknya; owner hanya lead listing miliknya; agent belum aktif sebelum assignment.
-- [ ] Hubungkan status approval access request dengan notifikasi dan forced re-login.
+- [x] Hubungkan status approval access request dengan notifikasi (email outbox). Forced re-login tidak diperlukan — `getAuthenticatedActor()` re-query role tiap request.
 - [x] Tambah audit log approval/rejection access request (sudah tertulis sejak awal di `admin/access-requests` PATCH; checklist sebelumnya salah tandai).
-- [ ] Tambah assignment agent ke listing.
-- [ ] Tambah review workflow editor dan approval publikasi admin.
+- [x] Tambah assignment agent ke listing.
+- [x] Tambah review workflow editor dan approval publikasi admin.
 - [x] Tambah test authorization untuk setiap role (`tests/unit/authorization.test.ts`).
 - [x] Tambah duplicate prevention access request.
 - [x] Tambah rate limit access request.
-- [ ] Tambah consent, data privacy, dan penghapusan akun.
+- [x] Tambah consent, data privacy, dan penghapusan akun.
 
 ## Perubahan berikutnya
 
@@ -90,4 +90,16 @@ Bug: login Google asli (bukan callback dengan code palsu) selalu balas 503 `AUTH
 Sekalian: logo header `/login` blur karena `sizes="80px"` pada `<Image>` tidak cocok dengan lebar tampilan CSS 150px (`login.module.css` `.headerBrand img{width:150px}`) sehingga Next.js mengirim varian gambar terlalu kecil lalu di-upscale. Fix: `sizes="150px"` (`src/app/login/page.tsx`). Diverifikasi via browser preview: naturalWidth/cssWidth rasio 1.00 pada DPR 1.
 
 Belum diverifikasi end-to-end dengan akun Google asli (butuh akun approved); perbaikan divalidasi via inspeksi grant Postgres langsung dan reproduksi manual jalur `start` → `callback`.
+
+## Review 17 September 2026 (batch penutup: grant, assignment, review workflow, notifikasi, privasi)
+
+Akar masalah lanjutan: bug grant pada login Google ternyata bukan kasus tunggal. Audit `information_schema.table_privileges` untuk role `lelang_app` menunjukkan `access_requests`, `property_assignments`, `property_watchlists`, dan `user_roles` hanya punya `SELECT`, padahal aplikasi melakukan INSERT/UPDATE/DELETE pada keempatnya. Efeknya empat fitur yang sudah ditandai selesai (kirim pengajuan akses, approve access request yang memberi role, tambah/hapus watchlist, buat assignment agent) diam-diam gagal dengan 503 lewat fallback generik. Perlu dicatat ada dua fallback yang sama-sama menyamarkan error ini: `authErrorResponse` (`src/server/auth/http.ts`) untuk rute `/api/v1/auth/*` dan `apiErrorResponse` (`src/server/api.ts`) untuk sisanya. Fix: `scripts/grant-runtime.sql` diperluas per tabel, dijalankan ulang via `npm run db:grant:local`.
+
+Assignment agent: `src/app/api/v1/admin/assignments/route.ts` ditambah guard duplikat, validasi role agent, audit `assignment.created`, dan DELETE unassign dengan audit `assignment.removed`. UI `/dashboard/assignments` dibuat dari nol (sebelumnya direktori kosong walau rute API sudah ada). `dashboardLeads` untuk agent tidak lagi mengembalikan daftar kosong, melainkan join EXISTS ke `property_assignments` aktif. PATCH `leads/admin/[id]` kini menerima role `agent` dengan cek kepemilikan assignment. Agent sebelumnya tidak punya akses dashboard sama sekali (`dashboard/layout.tsx` mengecualikan role tersebut) — diperbaiki.
+
+Review workflow: state machine `transitionListing` sudah lengkap dan benar; masalahnya di UI — `ListingReview` menampilkan kelima tombol untuk semua role, sedangkan approve/revision/reject/archive admin-only di server, sehingga editor selalu dapat 403. Sesuai keputusan, diambil perbaikan UI-only: prop `isAdmin` menyaring tombol admin. `/api/v1/auth/session` kini mengembalikan `roles` agar klien bisa menentukan ini.
+
+Notifikasi approval: tipe outbox baru `access_request.reviewed` di-insert pada PATCH access request, dikirim `src/workers/deliver-outbox.ts`. Ini event pertama yang mengirim email ke end-user (pemohon), bukan hanya staf internal.
+
+Privasi: `GET /api/v1/account/export` (unduh JSON data akun, audit `account.exported`) dan `POST /api/v1/account/delete` (konfirmasi ketik "HAPUS AKUN", cabut sesi, hapus identitas/role, anonimkan profil, audit `account.deleted`). Penghapusan sengaja berupa soft-delete/anonimisasi agar FK dari `properties`, `leads`, `audit_logs`, dan `property_assignments` ke `profiles.id` tetap utuh. UI di `/dashboard/account`; `kebijakan-privasi` §11 diperbarui.
 

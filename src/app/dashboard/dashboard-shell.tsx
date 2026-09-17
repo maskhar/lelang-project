@@ -23,7 +23,13 @@ const buyerLinks = [
   { href: "/dashboard/watchlist", label: "Watchlist" },
 ];
 
+const agentLinks = [
+  { href: "/dashboard/leads", label: "Lead" },
+  { href: "/dashboard/assignments", label: "Penugasan" },
+];
+
 const adminLinks = [
+  { href: "/dashboard/assignments", label: "Penugasan" },
   { href: "/dashboard/audit", label: "Audit" },
   { href: "/dashboard/outbox", label: "Outbox" },
   { href: "/dashboard/users", label: "Akun" },
@@ -32,7 +38,7 @@ const adminLinks = [
 
 function linksFor(roles: Actor["roles"]) {
   const isStaff = roles.includes("editor") || roles.includes("admin");
-  const links = isStaff ? [...staffLinks] : roles.includes("owner") ? [...ownerLinks] : [];
+  const links = isStaff ? [...staffLinks] : roles.includes("owner") ? [...ownerLinks] : roles.includes("agent") ? [...agentLinks] : [];
   if (!isStaff && roles.includes("buyer")) for (const link of buyerLinks) if (!links.some((existing) => existing.href === link.href)) links.push(link);
   if (roles.includes("admin")) links.push(...adminLinks);
   return links;
