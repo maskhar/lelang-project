@@ -5,7 +5,7 @@ import { consumeGoogleTransaction, googleCookieName, verifyGoogleCode } from "@/
 import { AuthHttpError, authErrorResponse } from "@/server/auth/http";
 import { limitGoogleCallback } from "@/server/auth/rate-limit";
 import { loginWithGoogle } from "@/server/auth/service";
-import { sessionCookieName } from "@/server/auth/session";
+import { clientFingerprint, sessionCookieName } from "@/server/auth/session";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,8 +20,9 @@ export async function GET(request: NextRequest) {
     const code = parameters.get("code");
     if (parameters.has("error") || !code || code.length > 4096) throw new AuthHttpError(400, "GOOGLE_LOGIN_CANCELLED", "Login Google dibatalkan. Mulai login kembali.");
     const identity = await verifyGoogleCode(code, transaction);
-    const result = await loginWithGoogle(identity, request.cookies.get(sessionCookieName)?.value);
-    response = NextResponse.redirect(new URL("/account", getAuthConfig().origin));
+    const result = await loginWithGoogle(identity, request.cookies.get(sessionCookieName)?.value, clientFingerprint(request));
+    const landing = result.roles.length === 0 ? "/access-request" : result.roles.some((role) => role === "editor" || role === "admin") ? "/dashboard?welcome=1" : "/dashboard/account";
+    response = NextResponse.redirect(new URL(landing, getAuthConfig().origin));
     response.cookies.set(sessionCookieName, result.token, { httpOnly: true, secure: getAuthConfig().secure, sameSite: "lax", path: "/", expires: result.expiresAt });
     issueCsrf(response, result.token);
   } catch (error) {

@@ -1,0 +1,12 @@
+import { NextRequest, NextResponse } from "next/server";
+import { and, desc, eq } from "drizzle-orm";
+import { getAuthenticatedActor, requireRole } from "@/server/auth/actor";
+import { requireCsrf } from "@/server/auth/csrf";
+import { readAuthJson } from "@/server/auth/http";
+import { apiErrorResponse } from "@/server/api";
+import { getDatabase } from "@/server/db/client";
+import { accessRequests, profiles, userRoles, auditLogs } from "@/server/db/schema";
+import { z } from "zod";
+export const runtime="nodejs"; export const dynamic="force-dynamic";
+export async function GET(){try{requireRole(await getAuthenticatedActor(),"admin");const data=await getDatabase().select({id:accessRequests.id,profileId:accessRequests.profileId,name:profiles.name,email:profiles.email,requestedRole:accessRequests.requestedRole,reason:accessRequests.reason,status:accessRequests.status,createdAt:accessRequests.createdAt}).from(accessRequests).innerJoin(profiles,eq(profiles.id,accessRequests.profileId)).where(eq(accessRequests.status,"pending")).orderBy(desc(accessRequests.createdAt));return NextResponse.json({data},{headers:{"Cache-Control":"no-store"}});}catch(error){return apiErrorResponse(error);}}
+export async function PATCH(request:NextRequest){try{requireCsrf(request);const actor=requireRole(await getAuthenticatedActor(),"admin");const value=z.object({id:z.string().uuid(),status:z.enum(["approved","rejected"]),note:z.string().trim().max(1000).optional()}).parse(await readAuthJson(request));const database=getDatabase();return NextResponse.json({data:await database.transaction(async tx=>{const [item]=await tx.select().from(accessRequests).where(and(eq(accessRequests.id,value.id),eq(accessRequests.status,"pending"))).for("update");if(!item)throw new Error("Pengajuan tidak ditemukan atau sudah diproses.");await tx.update(accessRequests).set({status:value.status,reviewedBy:actor.profileId,reviewedAt:new Date(),reviewNote:value.note||null,updatedAt:new Date()}).where(eq(accessRequests.id,item.id));if(value.status==="approved")await tx.insert(userRoles).values({userId:item.profileId,role:item.requestedRole}).onConflictDoNothing();await tx.insert(auditLogs).values({actorId:actor.profileId,action:"access_request."+value.status,entityType:"access_request",entityId:item.id,metadata:{requestedRole:item.requestedRole,note:value.note||null}});return {id:item.id,status:value.status};})});}catch(error){return apiErrorResponse(error);}}

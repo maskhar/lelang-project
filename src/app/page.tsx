@@ -46,6 +46,8 @@ function CatalogHome() {
   const setMode = (value: string) => updateFilter("mode", value);
   const setSort = (value: string) => updateFilter("sort", value);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+  useEffect(() => { const controller = new AbortController(); fetch("/api/v1/auth/session", { cache: "no-store", signal: controller.signal }).then((response) => response.json()).then((body: { data?: { authenticated?: boolean } }) => setAuthenticated(body.data?.authenticated === true)).catch(() => undefined); return () => controller.abort(); }, []);
   const [notice, setNotice] = useState("");
   const requestController = useRef<AbortController | null>(null);
   const moreLock = useRef(false);
@@ -109,9 +111,9 @@ function CatalogHome() {
       <a className="brand" href="#top" aria-label="Lelangan Properti — Beranda"><Image className="brand-logo" src="/image/logo/white/LP-logo-large-white.png" alt="Lelangan Properti" width={1944} height={809} sizes="(max-width: 720px) 140px, 165px" priority /></a>
       <button className="menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label="Buka menu" aria-expanded={menuOpen}>☰</button>
       <nav className={menuOpen ? "nav open" : "nav"} aria-label="Navigasi utama">
-        <button type="button" onClick={() => scrollToSection("properti")}>Cari Properti</button><button type="button" onClick={() => scrollToSection("cara-kerja")}>Cara Kerja</button><button type="button" onClick={() => scrollToSection("jual")}>Jual Properti</button><button type="button" onClick={() => scrollToSection("kontak")}>Kontak</button><a href="/dashboard">Dashboard</a>
+        <button type="button" onClick={() => scrollToSection("properti")}>Cari Properti</button><button type="button" onClick={() => scrollToSection("cara-kerja")}>Cara Kerja</button><button type="button" onClick={() => scrollToSection("jual")}>Jual Properti</button><button type="button" onClick={() => scrollToSection("kontak")}>Kontak</button><a href={authenticated ? "/dashboard" : "/login"}>{authenticated ? "Dashboard" : "Login"}</a>
       </nav>
-      <a className="button gold" href="/dashboard">Dashboard</a>
+      <a className="button gold" href={authenticated ? "/dashboard" : "/login"}>{authenticated ? "Dashboard" : "Login"}</a>
     </header>
 
     <main id="top">
@@ -161,7 +163,7 @@ function CatalogHome() {
       <section className="seller" id="jual"><div><span className="eyebrow">UNTUK PEMILIK ASET</span><h2>Punya properti untuk dijual atau dilelang?</h2><p>Masuk ke dashboard untuk membuat draft, menambahkan foto, dan mengirim properti ke proses review.</p></div><Link className="button light" href="/dashboard/properties">Daftarkan Properti</Link></section>
     </main>
 
-    <footer id="kontak" className="home-footer"><div><Image src="/image/logo/color/LP-logo-large-color.png" alt="Lelang Properti" width={1944} height={809} className="footer-logo" /><p>Platform pencarian dan transaksi properti dengan proses transparan.</p></div><div><b>Jelajahi</b><a href="#properti">Cari Properti</a><a href="#cara-kerja">Cara Kerja</a></div><div><b>Kontak</b><a href="mailto:halo@lelangproperti.id">halo@lelangproperti.id</a><a href="tel:+6281200000000">+62 812-0000-0000</a><Link href="/kebijakan-privasi">Kebijakan Privasi</Link></div><small>© 2026 Lelang Properti</small></footer>
+    <footer id="kontak" className="home-footer"><div><Image src="/image/logo/color/LP-logo-large-color.png" alt="Lelang Properti" width={1944} height={809} className="footer-logo" /><p>Platform pencarian dan transaksi properti dengan proses transparan.</p></div><div><b>Jelajahi</b><a href="#properti">Cari Properti</a><a href="#cara-kerja">Cara Kerja</a></div><div><b>Kontak</b><a href="mailto:halo@lelangproperti.id">halo@lelangproperti.id</a><a href="tel:+6281200000000">+62 812-0000-0000</a><Link href="/kebijakan-privasi">Kebijakan Privasi</Link><Link href="/syarat-dan-ketentuan">Syarat dan Ketentuan</Link></div><small>© 2026 Lelang Properti</small></footer>
 
     {notice && <div className="demo-notice" role="status">{notice}<button aria-label="Tutup pemberitahuan" onClick={() => setNotice("")}>×</button></div>}
   </>;
