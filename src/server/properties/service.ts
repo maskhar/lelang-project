@@ -6,6 +6,7 @@ import { getDatabase } from "@/server/db/client";
 import { properties, propertyRevisions, propertyMedia, auditLogs, outboxEvents, leads, profiles } from "@/server/db/schema";
 import { requireRole, type Actor } from "@/server/auth/actor";
 import { AuthHttpError } from "@/server/auth/http";
+import { discard, discardPublic } from "@/server/storage/local";
 import { listingInput, transitionInput, leadInput, identifier } from "./validation";
 import { denied, isAgentOnly, isBuyerOnly, isOwnerOnly, isStaff } from "./policy";
 
@@ -146,6 +147,32 @@ export async function bulkArchiveListings(actor: Actor, ids: string[]) {
     if (rows.length) await transaction.insert(auditLogs).values(rows.map((row) => ({ actorId: actor.profileId, action: "property.archive", entityType: "property", entityId: row.id, metadata: { bulk: true } })));
     return rows;
   });
+}
+
+// Hard delete. Revisi, foto, watchlist, dan assignment ikut terhapus lewat FK cascade; baris audit tetap
+// (audit_logs.entity_id tanpa FK). Lead memakai FK NO ACTION sehingga properti berlead ditolak lebih dulu
+// dengan pesan ramah. File di disk tidak ikut cascade, jadi path dikumpulkan di dalam transaksi lalu dihapus
+// setelah commit — worker media.cleanup tidak bisa menemukannya lagi begitu barisnya hilang.
+export async function deleteListings(actor: Actor, value: unknown) {
+  requireRole(actor, "admin");
+  const input = z.object({ ids: z.array(identifier).min(1).max(100), confirm: z.string() }).strict().parse(value);
+  if (input.confirm !== "HAPUS") throw new AuthHttpError(422, "CONFIRM_REQUIRED", 'Ketik "HAPUS" untuk mengonfirmasi penghapusan.');
+  const ids = [...new Set(input.ids)];
+  const files = await getDatabase().transaction(async (transaction) => {
+    const rows = await transaction.select({ id: properties.id, sku: properties.sku }).from(properties).where(inArray(properties.id, ids)).for("update");
+    if (rows.length !== ids.length) throw missing();
+    const blocked = await transaction.select({ propertyId: leads.propertyId, count: sql<number>`count(*)::integer` }).from(leads).where(inArray(leads.propertyId, ids)).groupBy(leads.propertyId);
+    if (blocked.length) {
+      const names = blocked.map((row) => rows.find((property) => property.id === row.propertyId)?.sku ?? row.propertyId).join(", ");
+      throw new AuthHttpError(409, "HAS_LEADS", "Properti " + names + " memiliki lead. Arsipkan saja agar riwayat lead tetap utuh.");
+    }
+    const media = await transaction.select({ bucket: propertyMedia.bucket, objectPath: propertyMedia.objectPath }).from(propertyMedia).innerJoin(propertyRevisions, eq(propertyRevisions.id, propertyMedia.revisionId)).where(inArray(propertyRevisions.propertyId, ids));
+    await transaction.delete(properties).where(inArray(properties.id, ids));
+    await transaction.insert(auditLogs).values(rows.map((row) => ({ actorId: actor.profileId, action: "property.deleted", entityType: "property", entityId: row.id, metadata: { sku: row.sku, mediaCount: media.length } })));
+    return media;
+  });
+  for (const file of files) await (file.bucket === "public" ? discardPublic(file.objectPath) : discard(file.objectPath)).catch(() => undefined);
+  return { deleted: ids.length, mediaRemoved: files.length };
 }
 
 export async function createLead(input: z.infer<typeof leadInput>, buyerId?: string) {

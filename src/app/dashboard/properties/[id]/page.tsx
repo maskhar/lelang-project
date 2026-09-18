@@ -1,6 +1,7 @@
 "use client";
 import { use, useEffect, useState, type DragEvent } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import PropertyForm, { type ListingFormValue } from "@/components/property-form";
 import { apiRequest } from "@/components/api-client";
 import { csrfHeaders } from "@/components/csrf";
@@ -15,6 +16,7 @@ type Revision = { id: string; revisionNumber: number; status: string; title: str
 type Detail = { property: { id: string; sku: string; version: number; publicationStatus: string; availabilityStatus: string }; revisions: Revision[]; media: Media[]; permissions: { canMarkSold: boolean } };
 export default function EditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -23,6 +25,8 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   const [formKey, setFormKey] = useState(0);
   const [draggedMediaId, setDraggedMediaId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
   async function load() { const data = await apiRequest<Detail>("/api/v1/properties/" + id + "/detail", { cache: "no-store" }); setDetail(data); return data; }
   useEffect(() => { const controller = new AbortController(); apiRequest<Detail>("/api/v1/properties/" + id + "/detail", { cache: "no-store", signal: controller.signal }).then(setDetail).catch((reason) => { if (!controller.signal.aborted) setError(reason); }); return () => controller.abort(); }, [id]);
   useEffect(() => { const controller = new AbortController(); apiRequest<{ roles?: string[] }>("/api/v1/auth/session", { cache: "no-store", signal: controller.signal }).then((session) => { if (!controller.signal.aborted) setIsAdmin(Boolean(session.roles?.includes("admin"))); }).catch(() => undefined); return () => controller.abort(); }, []);
@@ -45,6 +49,13 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
     catch (reason) { const remaining = selected.slice(uploadedCount); setRetryFiles(remaining); setError(reason); await load().catch(() => undefined); setProgress("Upload terhenti. " + uploadedCount + " file berhasil; " + remaining.length + " file siap dicoba ulang pada draft yang sama."); }
     finally { setBusy(false); }
   }
+  // window.prompt tidak tersedia di beberapa webview, jadi konfirmasi ketik "HAPUS" dirender inline (pola sama dengan hapus akun).
+  async function remove() {
+    if (busy || deleteConfirm.trim() !== "HAPUS") return;
+    setBusy(true); setError(null);
+    try { await apiRequest("/api/v1/admin/properties", { method: "DELETE", headers: { "Content-Type": "application/json", ...await csrfHeaders() }, body: JSON.stringify({ ids: [id], confirm: "HAPUS" }) }); router.push("/dashboard/properties"); }
+    catch (reason) { setError(reason); setBusy(false); }
+  }
   async function order(ids: string[]) { if (!detail || busy) return; setBusy(true); setError(null); try { await apiRequest("/api/v1/properties/" + id + "/media/manage", { method: "PATCH", headers: { "Content-Type": "application/json", ...await csrfHeaders() }, body: JSON.stringify({ version: detail.property.version, mediaIds: ids }) }); await load(); } catch (reason) { setError(reason); } finally { setBusy(false); } }
   function handleFileDrop(event: DragEvent<HTMLLabelElement>) { event.preventDefault(); if (mediaLocked || busy) return; const files = Array.from(event.dataTransfer.files); void upload(files); }
   function handleMediaDrop(event: DragEvent<HTMLElement>, targetId: string) { event.preventDefault(); const sourceId = draggedMediaId; setDraggedMediaId(null); if (!sourceId || sourceId === targetId || mediaLocked || busy) return; const ids = media.map((photo) => photo.id); const sourceIndex = ids.indexOf(sourceId); const targetIndex = ids.indexOf(targetId); if (sourceIndex < 0 || targetIndex < 0) return; ids.splice(sourceIndex, 1); ids.splice(targetIndex, 0, sourceId); void order(ids); }
@@ -61,8 +72,19 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
         <div className={styles.actions}>
           {detail && <StatusBadge kind="publication" value={detail.property.publicationStatus} />}
           <button type="button" disabled={busy} onClick={() => { if (window.confirm("Muat ulang akan mengganti input belum disimpan dengan data server. Lanjutkan?")) void load().then(() => setFormKey((value) => value + 1)).catch(setError); }}>Muat ulang</button>
+          {isAdmin && <button type="button" className={styles.dangerBtn} disabled={busy} onClick={() => { setConfirmingDelete((current) => !current); setDeleteConfirm(""); }}>Hapus properti</button>}
         </div>
       </div>
+      {confirmingDelete && isAdmin && (
+        <div role="alertdialog" aria-labelledby="delete-property-title" className={styles.confirmBox}>
+          <p id="delete-property-title"><strong>Hapus properti ini secara permanen?</strong> Foto, riwayat revisi, watchlist, dan penugasan ikut terhapus. Tindakan ini tidak bisa dibatalkan.</p>
+          <label>Ketik <b>HAPUS</b> untuk mengaktifkan tombol <input value={deleteConfirm} maxLength={10} autoFocus onChange={(event) => setDeleteConfirm(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void remove(); }} aria-label="Konfirmasi ketik HAPUS" /></label>
+          <div className={styles.actions}>
+            <button type="button" className={styles.dangerBtn} disabled={busy || deleteConfirm.trim() !== "HAPUS"} onClick={() => void remove()}>{busy ? "Menghapus…" : "Hapus permanen"}</button>
+            <button type="button" disabled={busy} onClick={() => { setConfirmingDelete(false); setDeleteConfirm(""); }}>Batal</button>
+          </div>
+        </div>
+      )}
       <FormError error={error} />
       {!detail && <div className={styles.panel}><div className={styles.skeleton} /><div className={styles.skeleton} /><div className={styles.skeleton} /></div>}
       {detail && revision && (
