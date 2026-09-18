@@ -5,6 +5,9 @@ DO $$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO lelang_app', current
 GRANT USAGE ON SCHEMA app TO lelang_app;
 GRANT SELECT ON ALL TABLES IN SCHEMA app TO lelang_app;
 GRANT UPDATE (updated_at, email_verified_at, name, avatar_url, phone, email, status) ON app.profiles TO lelang_app;
+-- Pendaftaran mandiri lewat Google. Kolom-level: runtime tidak pernah boleh memilih id, status,
+-- created_at, atau updated_at sendiri — semuanya mengandalkan default kolom (status = 'active').
+GRANT INSERT (email, name, avatar_url, email_verified_at) ON app.profiles TO lelang_app;
 GRANT INSERT, UPDATE, DELETE ON app.properties, app.property_revisions, app.property_media, app.leads, app.outbox_events, app.user_sessions, app.auth_rate_limits TO lelang_app;
 GRANT INSERT, UPDATE ON app.access_requests TO lelang_app;
 GRANT INSERT, UPDATE ON app.property_assignments TO lelang_app;

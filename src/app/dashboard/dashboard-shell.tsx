@@ -35,10 +35,13 @@ const adminLinks = [
   { href: "/dashboard/access-requests", label: "Pengajuan akses" },
 ];
 
+// Gabungan (union) tautan semua role non-staf yang dimiliki, tanpa duplikat href. Staf memakai staffLinks;
+// admin mendapat tambahan adminLinks (Penugasan sudah tercakup di sana, jadi agentLinks tidak digabung ke staf).
 function linksFor(roles: Actor["roles"]) {
   const isStaff = roles.includes("editor") || roles.includes("admin");
-  const links = isStaff ? [...staffLinks] : roles.includes("owner") ? [...ownerLinks] : roles.includes("agent") ? [...agentLinks] : [];
-  if (!isStaff && roles.includes("buyer")) for (const link of buyerLinks) if (!links.some((existing) => existing.href === link.href)) links.push(link);
+  const links = isStaff ? [...staffLinks] : [];
+  const extra = isStaff ? [] : [...(roles.includes("owner") ? ownerLinks : []), ...(roles.includes("agent") ? agentLinks : []), ...(roles.includes("buyer") ? buyerLinks : [])];
+  for (const link of extra) if (!links.some((existing) => existing.href === link.href)) links.push(link);
   if (roles.includes("admin")) links.push(...adminLinks);
   return links;
 }

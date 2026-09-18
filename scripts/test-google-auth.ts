@@ -35,7 +35,10 @@ async function main() {
   const states: string[] = [];
   const subject = "test-" + randomUUID();
   const email = "auth-test-" + randomUUID() + "@gmail.com";
+  // Identitas yang dipakai claims ID token; ditukar ke akun signup pada kasus pendaftaran mandiri.
+  const who = { subject, email };
   let profileId: string | undefined;
+  const cleanupProfiles: string[] = [];
   const expectCode = (code: string) => (error: unknown) => error instanceof AuthHttpError && error.code === code;
   const origin = process.env.APP_BASE_URL;
   try {
@@ -73,7 +76,7 @@ async function main() {
       const state = destination.searchParams.get("state")!;
       states.push(hashAuthToken(state));
       const now = Math.floor(Date.now() / 1000);
-      claims = { iss: "https://accounts.google.com", aud: process.env.GOOGLE_CLIENT_ID, azp: process.env.GOOGLE_CLIENT_ID, sub: subject, email, email_verified: true, nonce: destination.searchParams.get("nonce"), iat: now, exp: now + 3600 };
+      claims = { iss: "https://accounts.google.com", aud: process.env.GOOGLE_CLIENT_ID, azp: process.env.GOOGLE_CLIENT_ID, sub: who.subject, email: who.email, email_verified: true, nonce: destination.searchParams.get("nonce"), iat: now, exp: now + 3600 };
       return { state, cookie };
     };
     const finish = (flow: { state: string; cookie: string }, extraCookie = "") => callback(new NextRequest(origin + "/api/v1/auth/google/callback?state=" + flow.state + "&code=test-code", { headers: { Cookie: google.googleCookieName + "=" + flow.cookie + extraCookie } }));
@@ -86,8 +89,32 @@ async function main() {
     await assert.rejects(google.consumeGoogleTransaction(wrongBrowser.state, randomBytes(32).toString("base64url") + "." + expectedVerifier), expectCode("INVALID_OAUTH_STATE"));
     await admin.query("UPDATE app.oauth_transactions SET expires_at = now() - interval '1 second' WHERE state_hash = $1", [hashAuthToken(wrongBrowser.state)]);
     await assert.rejects(google.consumeGoogleTransaction(wrongBrowser.state, wrongBrowser.cookie), expectCode("INVALID_OAUTH_STATE"));
-    const unapproved = await finish(await prepare());
-    assert.equal(unapproved.status, 403);
+    // Pendaftaran mandiri: email gmail yang belum punya profile dibuatkan profile + role buyer.
+    const signupEmail = "signup-test-" + randomUUID() + "@gmail.com";
+    who.subject = "signup-" + randomUUID();
+    who.email = signupEmail;
+    const signup = await finish(await prepare());
+    assert.equal(signup.status, 307);
+    assert.equal(signup.headers.get("location"), origin + "/dashboard/account", "Buyer baru mendarat di halaman akun, bukan /access-request");
+    const created = await admin.query("SELECT id, status, name, email_verified_at FROM app.profiles WHERE email = $1", [signupEmail]);
+    assert.equal(created.rows.length, 1, "Profile dibuat sekali");
+    cleanupProfiles.push(created.rows[0].id);
+    assert.equal(created.rows[0].status, "active");
+    assert.equal(created.rows[0].name, signupEmail.split("@")[0], "Nama jatuh ke local-part saat claim name kosong");
+    assert.ok(created.rows[0].email_verified_at);
+    const grantedRoles = await admin.query("SELECT role FROM app.user_roles WHERE user_id = $1", [created.rows[0].id]);
+    assert.deepEqual(grantedRoles.rows.map((row: { role: string }) => row.role), ["buyer"], "Role signup hanya buyer");
+    const signupAudit = await admin.query("SELECT action, metadata FROM app.audit_logs WHERE actor_id = $1 ORDER BY created_at", [created.rows[0].id]);
+    assert.deepEqual(signupAudit.rows.map((row: { action: string }) => row.action), ["auth.google.signup", "auth.google.login"]);
+    assert.deepEqual(signupAudit.rows[0].metadata, { role: "buyer", provider: "google" });
+    // Email non-otoritatif (bukan gmail, tanpa hd) tidak boleh memicu pendaftaran mandiri.
+    who.subject = "nonauth-" + randomUUID();
+    who.email = "nonauth-" + randomUUID() + "@contoh.invalid";
+    const nonAuthoritative = await finish(await prepare());
+    assert.equal(nonAuthoritative.status, 403, "Email non-otoritatif ditolak");
+    assert.equal((await admin.query("SELECT id FROM app.profiles WHERE email = $1", [who.email])).rows.length, 0);
+    who.subject = subject;
+    who.email = email;
     const inserted = await admin.query("INSERT INTO app.profiles (email, name) VALUES ($1, 'Synthetic Google test') RETURNING id", [email]);
     profileId = inserted.rows[0].id;
     await admin.query("INSERT INTO app.user_roles (user_id, role) VALUES ($1, 'editor')", [profileId]);
@@ -106,7 +133,7 @@ async function main() {
     const good = await prepare();
     const success = await finish(good);
     assert.equal(success.status, 307);
-    assert.equal(success.headers.get("location"), origin + "/dashboard", "Editor/admin lands on dashboard");
+    assert.equal(success.headers.get("location"), origin + "/dashboard?welcome=1", "Editor/admin lands on dashboard");
     const session = success.cookies.get("lelang_session")!;
     assert.equal(session.httpOnly, true);
     assert.equal(session.sameSite, "lax");
@@ -120,6 +147,32 @@ async function main() {
     await admin.query("UPDATE app.profiles SET status = 'disabled' WHERE id = $1", [profileId]);
     await assert.rejects(loginWithGoogle({ subject, email, authoritativeEmail: true }), expectCode("ACCOUNT_NOT_APPROVED"));
     await admin.query("UPDATE app.profiles SET status = 'active' WHERE id = $1", [profileId]);
+    // Profile lama tanpa role tidak mendapat buyer secara surut — itu wewenang admin.
+    const zeroRoleEmail = "zero-role-" + randomUUID() + "@gmail.com";
+    const zeroRole = await admin.query("INSERT INTO app.profiles (email, name) VALUES ($1, 'Tanpa role') RETURNING id", [zeroRoleEmail]);
+    cleanupProfiles.push(zeroRole.rows[0].id);
+    const zeroRoleLogin = await loginWithGoogle({ subject: "zero-" + randomUUID(), email: zeroRoleEmail, authoritativeEmail: true });
+    assert.deepEqual(zeroRoleLogin.roles, []);
+    assert.equal((await admin.query("SELECT count(*)::int AS n FROM app.audit_logs WHERE actor_id = $1 AND action = 'auth.google.signup'", [zeroRole.rows[0].id])).rows[0].n, 0);
+    await logout(zeroRoleLogin.token);
+    // Email non-kanonik (huruf besar) tidak boleh dibuatkan profile — CHECK constraint DB dilindungi lebih awal.
+    const upperEmail = "Upper-" + randomUUID() + "@gmail.com";
+    await assert.rejects(loginWithGoogle({ subject: "upper-" + randomUUID(), email: upperEmail, authoritativeEmail: true }), expectCode("ACCOUNT_NOT_APPROVED"));
+    assert.equal((await admin.query("SELECT id FROM app.profiles WHERE lower(email) = lower($1)", [upperEmail])).rows.length, 0);
+    // Kuota signup per-IP: 3/jam. Percobaan ke-4 ditolak dan transaksinya dibatalkan (tidak ada profile).
+    const ipHash = "signup-ip-" + randomUUID();
+    const signupTokens: string[] = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const burstEmail = "burst-" + randomUUID() + "@gmail.com";
+      const burst = await loginWithGoogle({ subject: "burst-" + randomUUID(), email: burstEmail, authoritativeEmail: true }, undefined, { ipHash, userAgentHash: null });
+      assert.deepEqual(burst.roles, ["buyer"]);
+      signupTokens.push(burst.token);
+      cleanupProfiles.push((await admin.query("SELECT id FROM app.profiles WHERE email = $1", [burstEmail])).rows[0].id);
+    }
+    const overflowEmail = "burst-" + randomUUID() + "@gmail.com";
+    await assert.rejects(loginWithGoogle({ subject: "burst-" + randomUUID(), email: overflowEmail, authoritativeEmail: true }, undefined, { ipHash, userAgentHash: null }), expectCode("SIGNUP_RATE_LIMITED"));
+    assert.equal((await admin.query("SELECT id FROM app.profiles WHERE email = $1", [overflowEmail])).rows.length, 0, "Signup yang dibatasi tidak menyisakan profile");
+    for (const burstToken of signupTokens) await logout(burstToken);
     const bootstrap = csrf(new NextRequest(origin + "/api/v1/auth/csrf", { headers: { Cookie: "lelang_session=" + changedEmail.token } }));
     const browserCookies = "lelang_session=" + changedEmail.token + "; lelang_csrf=" + bootstrap.cookies.get("lelang_csrf")!.value;
     const headers = { Origin: origin, Cookie: browserCookies, "X-CSRF-Token": bootstrap.headers.get("X-CSRF-Token")! };
@@ -134,18 +187,20 @@ async function main() {
       try { await limitGoogleCallback(); } catch (error) { assert.ok(expectCode("LOGIN_RATE_LIMITED")(error)); limited = true; break; }
     }
     assert.equal(limited, true);
-    console.log("PASS: Google PKCE/state/browser/nonce, signed ID token checks, replay, preapproval, sub binding, rotation, disabled account, CSRF, logout, rate limit. Google transport mocked; no real OAuth credentials used.");
+    console.log("PASS: Google PKCE/state/browser/nonce, signed ID token checks, replay, self-signup buyer, non-authoritative rejection, zero-role no-retroactive-grant, signup rate limit, sub binding, rotation, disabled account, CSRF, logout, rate limit. Google transport mocked; no real OAuth credentials used.");
   } finally {
     OAuth2Client.prototype.getToken = originalToken;
     OAuth2Client.prototype.getFederatedSignonCertsAsync = originalCerts;
-    if (profileId) {
-      await admin.query("DELETE FROM app.audit_logs WHERE actor_id = $1", [profileId]);
-      await admin.query("DELETE FROM app.profiles WHERE id = $1", [profileId]);
+    if (profileId) cleanupProfiles.push(profileId);
+    if (cleanupProfiles.length) {
+      await admin.query("DELETE FROM app.audit_logs WHERE actor_id = ANY($1::uuid[])", [cleanupProfiles]);
+      await admin.query("DELETE FROM app.profiles WHERE id = ANY($1::uuid[])", [cleanupProfiles]);
     }
+    await admin.query("DELETE FROM app.auth_rate_limits WHERE key_hash IS NOT NULL AND key_hash != ''");
     await admin.query("DELETE FROM app.oauth_transactions WHERE state_hash = ANY($1::varchar[])", [states]);
     await admin.end();
     await getDatabasePool().end();
   }
 }
 
-main().catch(() => { console.error("Google auth test failed. Inspect assertions without exposing credentials."); process.exitCode = 1; });
+main().catch((error) => { console.error("Google auth test failed. Inspect assertions without exposing credentials."); if (process.env.AUTH_TEST_DEBUG === "1") console.error(error instanceof Error ? error.stack : error); process.exitCode = 1; });

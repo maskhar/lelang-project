@@ -54,7 +54,7 @@ Schema PostgreSQL aplikasi adalah `app`; journal Drizzle adalah `drizzle`. Tidak
 
 | Tabel | Fungsi |
 | --- | --- |
-| `profiles` | Akun aplikasi dipraotorisasi: email unik, nama, phone, status, snapshot verifikasi Google |
+| `profiles` | Akun aplikasi (staf dipraotorisasi atau self-signup buyer): email unik, nama, phone, status, snapshot verifikasi Google |
 | `user_roles` | Role `editor` dan `admin` |
 | `user_sessions` | Session token hash, expiry, revocation, fingerprint minimal |
 | `user_identities` | Binding immutable Google `sub` ke profile; email snapshot bukan identity key |
@@ -73,9 +73,9 @@ Schema PostgreSQL aplikasi adalah `app`; journal Drizzle adalah `drizzle`. Tidak
 
 ### 6.1 Akun
 
-- MVP hanya menyediakan akun editor/admin yang dipraotorisasi. Tidak ada signup publik dan tidak ada password aplikasi.
+- Akun staf (editor/admin/owner/agent) tetap dipraotorisasi lewat CLI/admin. Pengguna Google baru yang belum terdaftar diprovisikan otomatis saat login pertama: profile dibuat dan mendapat role `buyer` dari konstanta aplikasi (`defaultSignupRole`), tercatat sebagai audit `auth.google.signup`. Signup dibatasi rate limit global (20/jam) dan per-IP (3/jam) yang dikonsumsi di dalam transaksi login. Tidak ada password aplikasi.
 - Login menggunakan Google OIDC Authorization Code flow dengan PKCE S256, state, nonce, exact redirect URI, dan validasi signature/issuer/audience/expiry ID token.
-- Backend mengikat Google `sub` pertama kali ke profile dengan email yang telah dipraotorisasi. Role tidak pernah berasal dari Google claim; Google `sub`, bukan email, menjadi primary external identity.
+- Backend mengikat Google `sub` pertama kali ke profile dengan email yang telah dipraotorisasi, atau membuat profile baru (role `buyer`) bila email otoritatif (Gmail/Workspace `hd`, `email_verified=true`, lowercase kanonik) belum terdaftar. Role tidak pernah berasal dari Google claim; Google `sub`, bukan email, menjadi primary external identity. Role runtime PostgreSQL hanya boleh INSERT kolom `email, name, avatar_url, email_verified_at` pada `app.profiles` (grant kolom di `scripts/grant-runtime.sql`; jalankan `npm run docker:grant` sebelum deploy produksi).
 - Binding pertama hanya untuk Gmail atau Google Workspace dengan claim hd dan email_verified=true. Email pihak ketiga harus diikat administrator berdasarkan sub terverifikasi, bukan kecocokan email saja.
 - State/browser/nonce/verifier hanya tersimpan sebagai hash dalam transaksi PostgreSQL 10 menit. Cookie HttpOnly SameSite=Lax memegang browser secret dan PKCE verifier. DELETE RETURNING mengonsumsi transaksi sebelum code exchange, sehingga replay ditolak. Redirect setelah login tetap /account; tidak menerima return URL bebas.
 - email_verified_at merekam waktu login terakhir dengan email_verified=true. Google access/refresh token tidak disimpan. Logout aplikasi tidak mengeluarkan akun dari Google.
@@ -99,7 +99,7 @@ Schema PostgreSQL aplikasi adalah `app`; journal Drizzle adalah `drizzle`. Tidak
 | GET | `/me` | Identitas dan role current session |
 | POST | `/auth/verify-email` | Konsumsi token verifikasi |
 
-Status implementasi 15 September 2026: route Google start/callback, binding `sub`, session/logout, GET /api/v1/me, CSRF, dashboard terlindungi, katalog/detail PostgreSQL, listing workflow, media karantina, lead, audit, outbox, metrics, backup, dan restore test ephemeral tersedia. OAuth browser nyata masih memerlukan akun Google yang sudah dipraotorisasi; MFA dan mass revocation belum tersedia.
+Status implementasi 19 September 2026: route Google start/callback, binding `sub`, self-signup buyer otomatis dengan rate limit, session/logout, GET /api/v1/me, CSRF, dashboard terlindungi, katalog/detail PostgreSQL, listing workflow, media karantina, lead, audit, outbox, metrics, backup, admin API grant/revoke role dan enable/disable akun (dengan penjaga SELF_LOCKOUT), dan restore test ephemeral tersedia. Akun staf tetap dipraotorisasi; MFA dan mass revocation belum tersedia.
 
 ## 7. Storage mandiri
 
@@ -120,7 +120,8 @@ Base URL `/api/v1`; JSON `camelCase`; UUID; waktu ISO 8601 UTC; cursor opaque ma
 
 - Publik: `GET /properties`, `GET /properties/{slug}`, `POST /leads`.
 - Editor/admin: draft, revision, upload intent, submit review, read/update lead.
-- Admin: antrean review, approve/revision/reject/archive, audit log, invitation.
+- Owner: draft/edit listing miliknya, ubah status lead pada listing miliknya. Agent: ubah status lead dan baca detail listing yang sedang ditugaskan kepadanya.
+- Admin: antrean review, approve/revision/reject/archive, audit log, akses request, dan `POST`/`DELETE`/`PATCH /admin/users` untuk grant/revoke role dan enable/disable akun (menolak aksi yang mengunci akun admin aktor sendiri dengan `422 SELF_LOCKOUT`; setiap perubahan mencabut sesi aktif target dan tercatat audit `admin.role.*`/`admin.account.*`).
 - Setiap mutasi memakai Zod, policy server, audit event, dan optimistic version untuk edit listing.
 
 Policy minimum: editor hanya bekerja pada scope yang diizinkan; admin review dan operasi pengguna; draft/revision/lead/dokumen privat selalu 404 untuk pihak tak berhak, bukan membocorkan keberadaannya.
@@ -131,7 +132,7 @@ Tulis perubahan domain, audit event, dan outbox dalam transaksi PostgreSQL yang 
 
 ## 10. Deployment
 
-Produksi awal memakai host terkelola tim dengan service terpisah: `web`, `worker`, `postgres`, volume storage, dan SMTP relay. Database tidak memiliki port publik. Reverse proxy terminasi TLS untuk web saja. Backups PostgreSQL dan storage disalin terenkripsi ke lokasi kedua; restore drill rutin menentukan RPO/RTO aktual.
+Produksi awal memakai host terkelola tim dengan service terpisah: `web`, `worker`, `postgres`, volume storage, dan SMTP relay. Database tidak memiliki port publik. Reverse proxy terminasi TLS untuk web saja. Backups PostgreSQL dan storage disalin terenkripsi ke lokasi kedua; restore drill rutin menentukan RPO/RTO aktual. `npm run docker:grant` wajib dijalankan sebelum/bersamaan setiap deploy produksi agar role runtime memiliki grant kolom terbaru (termasuk INSERT `app.profiles` untuk self-signup buyer) — lupa menjalankannya membuat login Google pengguna baru gagal 503 karena `permission denied for table profiles` saat provisioning.
 
 Environment lokal dapat memakai Docker Compose untuk PostgreSQL, Mailpit, web, worker, dan volume storage. Tidak ada dependency Supabase.
 

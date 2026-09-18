@@ -59,7 +59,7 @@ pada `carubra-network` / `maskhar-network`.
 
    Setelah grant, app dan worker perlu restart agar koneksi lama tidak menahan privilege usang:
    `docker compose --env-file .env.docker.local restart app worker`.
-5. Praotorisasi akun Google (tidak ada signup publik):
+5. Praotorisasi akun staf (pengguna Google baru otomatis mendapat role `buyer` saat login pertama; role staf tetap harus diberikan admin lewat CLI ini atau halaman `/dashboard/users`). Langkah 4 (`docker:grant`) wajib sudah dijalankan — tanpa grant kolom INSERT `app.profiles`, login pengguna baru gagal 503:
 
    ```bash
    npm run docker:user:approve -- --email anda@gmail.com --name "Nama Anda" --role admin

@@ -19,13 +19,15 @@ const dayLabel = (value: string) => new Intl.DateTimeFormat("id-ID", { day: "num
 
 export default async function Dashboard({ searchParams }: { searchParams: Promise<{ welcome?: string }> }) {
   let actor;
-  try { actor = requireRole(await getAuthenticatedActor(), "editor", "admin", "owner", "buyer"); }
+  try { actor = requireRole(await getAuthenticatedActor(), "editor", "admin", "owner", "agent", "buyer"); }
   catch (error) {
     if (error instanceof AuthorizationError) return <section><h1>Akses ditolak</h1><p>Akun belum memiliki izin dashboard.</p></section>;
     throw error;
   }
-  if (actor.roles.includes("buyer") && !actor.roles.includes("editor") && !actor.roles.includes("admin")) redirect("/dashboard/leads");
-  if (!actor.roles.includes("editor") && !actor.roles.includes("admin")) redirect("/dashboard/properties");
+  // Ringkasan hanya untuk staf. Non-staf diarahkan ke halaman kerja utamanya: owner ke properti miliknya,
+  // buyer/agent ke lead (agent tanpa properti sendiri tidak punya apa pun di /dashboard/properties).
+  const staff = actor.roles.includes("editor") || actor.roles.includes("admin");
+  if (!staff) redirect(actor.roles.includes("owner") ? "/dashboard/properties" : "/dashboard/leads");
   const summary = await dashboardSummary(actor);
   const showWelcome = (await searchParams).welcome === "1";
   const sum = (rows: Array<{ count: number }>) => rows.reduce((total, row) => total + row.count, 0);

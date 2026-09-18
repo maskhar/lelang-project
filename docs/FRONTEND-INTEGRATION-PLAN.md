@@ -87,7 +87,7 @@ Buat src/app/dashboard/outbox/page.tsx memakai GET/PATCH /api/v1/admin/outbox. R
 
 ### Users
 
-Buat src/app/dashboard/users/page.tsx memakai GET /api/v1/admin/users. Pembuatan, role, disable, dan enable tetap lewat CLI migration-role; frontend tidak mengakali privilege runtime.
+Buat src/app/dashboard/users/page.tsx memakai GET /api/v1/admin/users untuk daftar, serta POST/DELETE (grant/revoke role) dan PATCH (enable/disable akun) pada endpoint yang sama. Pembuatan akun staf baru tetap lewat CLI migration-role. Baris akun admin sendiri tidak menampilkan aksi karena API menolaknya dengan 422 SELF_LOCKOUT — perubahan pada akun sendiri hanya lewat CLI. Setiap perubahan mencabut sesi aktif akun target dan tercatat di audit.
 
 ## Kontrak Error
 

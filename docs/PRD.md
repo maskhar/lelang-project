@@ -6,7 +6,7 @@ Tanggal: 15 September 2026 | Versi: 2.0 | Status: Arah teknis disetujui; detail 
 
 Backend dibangun dan dioperasikan sendiri, tanpa Supabase atau BaaS: Next.js + TypeScript, PostgreSQL mandiri, Drizzle ORM/Kit, Google OpenID Connect untuk identitas, session/RBAC aplikasi, storage volume persisten melalui adapter, SMTP, dan worker transactional outbox. Dokumen ini menggantikan keputusan integrasi lama.
 
-Tidak ada akses ke instance/server lama dalam rancangan baru. Kondisi development pada 15 September 2026: schema mandiri, Google OAuth/session/CSRF, katalog/detail PostgreSQL, dashboard terlindungi, workflow listing, media, lead, audit, outbox, metrics, backup lokal, dan restore ephemeral tersedia. Callback browser nyata menunggu penggunaan akun Google yang dipraotorisasi. Migrasi data/foto SQLite lama, MFA, dan deployment produksi belum selesai.
+Tidak ada akses ke instance/server lama dalam rancangan baru. Kondisi development pada 19 September 2026: schema mandiri, Google OAuth/session/CSRF, self-signup buyer otomatis untuk pengguna Google baru, katalog/detail PostgreSQL, dashboard terlindungi, workflow listing, media, lead, audit, outbox, metrics, backup lokal, manajemen role/status akun dari dashboard admin, dan restore ephemeral tersedia. Akun staf tetap dipraotorisasi. Migrasi data/foto SQLite lama, MFA, dan deployment produksi belum selesai.
 
 ## 1. Tujuan dan batas dokumen
 
@@ -52,7 +52,7 @@ Asumsi: satu organisasi pengelola; editor dapat mengelola inventaris bersama. `c
 
 | ID | Prioritas | Kebutuhan | Kriteria penerimaan |
 | --- | --- | --- | --- |
-| FR-01 | P0 | Login Google untuk akun yang dipraotorisasi, logout | Tanpa sesi: 401; peran salah: 403; akun nonaktif/tidak disetujui ditolak |
+| FR-01 | P0 | Login Google: akun staf dipraotorisasi, pengguna baru diprovisikan otomatis dengan role `buyer`; logout | Tanpa sesi: 401; peran salah: 403; akun nonaktif ditolak; signup dibatasi rate limit global/per-IP dan tercatat audit `auth.google.signup` |
 | FR-02 | P0 | Katalog dengan kata kunci, tipe, wilayah, harga, mode, status; sort terbaru/harga/tenggat | Filter dapat digabung; pagination stabil; input invalid: 422 |
 | FR-03 | P0 | Detail publik dan galeri | Draft/arsip: 404; data kosong tidak diganti klaim rekaan |
 | FR-04 | P0 | Draft, edit, review, publikasi, revisi, arsip | Server validasi transisi; edit bersamaan menghasilkan konflik versi |

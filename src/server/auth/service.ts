@@ -1,9 +1,11 @@
 import "server-only";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDatabase } from "@/server/db/client";
 import { profiles, userSessions, userRoles, userIdentities, auditLogs } from "@/server/db/schema";
 import { createSessionToken, hashAuthToken, sessionDurationSeconds, sessionMaxActivePerUser } from "./session";
 import { AuthHttpError } from "./http";
+import { profileNameFromIdentity, isProvisionableEmail, defaultSignupRole } from "./identity";
+import { limitGoogleSignup } from "./rate-limit";
 
 const invalid = () => new AuthHttpError(403, "ACCOUNT_NOT_APPROVED", "Akun Google belum memiliki akses. Hubungi administrator.");
 
@@ -15,7 +17,28 @@ export async function loginWithGoogle(identity: { subject: string; email: string
   await database.transaction(async (transaction) => {
     const [linked] = await transaction.select().from(userIdentities).where(and(eq(userIdentities.provider, "google"), eq(userIdentities.providerSubject, identity.subject)));
     if (!linked && !identity.authoritativeEmail) throw invalid();
-    const [current] = await transaction.select().from(profiles).where(linked ? eq(profiles.id, linked.userId) : eq(profiles.email, identity.email)).for("update");
+    let [current] = await transaction.select().from(profiles).where(linked ? eq(profiles.id, linked.userId) : eq(profiles.email, identity.email)).for("update");
+    // Pendaftaran mandiri: identitas Google yang emailnya belum punya profile dibuatkan profile
+    // baru + role buyer. Role datang dari konstanta aplikasi, tidak pernah dari claim Google.
+    // Profile yang sudah ada tapi tanpa role sengaja tidak diberi buyer surut — itu keputusan admin.
+    if (!current) {
+      // linked tanpa profile = identity yatim (seharusnya mustahil, FK) — jangan provision ulang.
+      if (linked || !identity.authoritativeEmail || !isProvisionableEmail(identity.email)) throw invalid();
+      await limitGoogleSignup(transaction, fingerprint?.ipHash ?? null);
+      // Raw SQL, bukan transaction.insert(): Drizzle selalu menyebut semua kolom (mengisi `default`
+      // untuk yang kosong), dan Postgres tetap memeriksa privilese INSERT per kolom yang disebut.
+      // Grant runtime pada app.profiles sengaja hanya 4 kolom ini (scripts/grant-runtime.sql);
+      // id, status, created_at, updated_at wajib berasal dari default kolom, bukan dari aplikasi.
+      const inserted = await transaction.execute<{ id: string }>(sql`insert into app.profiles (email, name, avatar_url, email_verified_at) values (${identity.email}, ${profileNameFromIdentity(identity)}, ${identity.avatarUrl ?? null}, now()) on conflict (lower(email)) do nothing returning id`);
+      const createdId = inserted.rows[0]?.id;
+      if (createdId) {
+        await transaction.insert(userRoles).values({ userId: createdId, role: defaultSignupRole });
+        await transaction.insert(auditLogs).values({ actorId: createdId, action: "auth.google.signup", entityType: "profile", entityId: createdId, metadata: { role: defaultSignupRole, provider: "google" } });
+      }
+      // Tanpa createdId = race: request lain membuat profile email yang sama lebih dulu. Ambil ulang
+      // barisnya (dan pada jalur sukses, baris yang baru saja dibuat) lewat query builder biasa.
+      [current] = await transaction.select().from(profiles).where(eq(profiles.email, identity.email)).for("update");
+    }
     if (!current || current.status !== "active") throw invalid();
     const roles = await transaction.select().from(userRoles).where(eq(userRoles.userId, current.id));
     roleNames = roles.map((row) => row.role);

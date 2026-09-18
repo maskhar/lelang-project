@@ -15,6 +15,7 @@ async function main() {
   const { createListing, editListing, transitionListing, createLead, publicListing, markListingSold } = await import("../src/server/properties/service.ts");
   const { AuthHttpError } = await import("../src/server/auth/http.ts");
   const { AuthorizationError } = await import("../src/server/auth/actor.ts");
+  const { setRole, setAccountStatus } = await import("../src/server/auth/admin-users.ts");
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   const profileId = randomUUID();
   const actor = { profileId, email: "backend-test@example.invalid", name: "Backend Test", roles: ["admin"] };
@@ -84,7 +85,37 @@ async function main() {
     const current = await client.query("select version from app.properties where id=$1", [propertyId]);
     await transitionListing(actor, propertyId, { version: current.rows[0].version, action: "archive", reason: "Selesai pengujian" });
     await assert.rejects(publicListing(created.property.slug), (error) => error.code === "NOT_FOUND");
-    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, SMTP retry, dead-letter, checksum rejection.");
+    // Manajemen role/status akun oleh admin (Piece 2): grant/revoke role, disable/enable akun,
+    // penjaga SELF_LOCKOUT, dan pencabutan sesi target di dalam transaksi yang sama.
+    const targetId = randomUUID();
+    await client.query("insert into app.profiles(id,email,name,email_verified_at) values($1,$2,$3,now())", [targetId, "target-admin-users@example.invalid", "Target Uji"]);
+    await client.query("insert into app.user_sessions(user_id,token_hash,expires_at) values($1,$2,now() + interval '1 hour')", [targetId, "c".repeat(64)]);
+    const expectHttp = (code) => (error) => error instanceof AuthHttpError && error.code === code;
+    await assert.rejects(setRole({ ...actor, roles: ["editor"] }, targetId, "buyer", true), (error) => error instanceof AuthorizationError);
+    const granted = await setRole(actor, targetId, "buyer", true);
+    assert.deepEqual(granted, { id: targetId, role: "buyer", granted: true });
+    await assert.rejects(setRole(actor, targetId, "buyer", true), expectHttp("ROLE_EXISTS"));
+    const revokedSessions = await client.query("select count(*)::int as n from app.user_sessions where user_id=$1 and revoked_at is null", [targetId]);
+    assert.equal(revokedSessions.rows[0].n, 0, "Sesi target dicabut saat role berubah");
+    const revoked = await setRole(actor, targetId, "buyer", false);
+    assert.deepEqual(revoked, { id: targetId, role: "buyer", granted: false });
+    await assert.rejects(setRole(actor, targetId, "buyer", false), expectHttp("ROLE_NOT_FOUND"));
+    await assert.rejects(setRole(actor, randomUUID(), "buyer", true), expectHttp("USER_NOT_FOUND"));
+    await client.query("insert into app.user_sessions(user_id,token_hash,expires_at) values($1,$2,now() + interval '1 hour')", [targetId, "d".repeat(64)]);
+    const disabled = await setAccountStatus(actor, targetId, "disabled");
+    assert.deepEqual(disabled, { id: targetId, status: "disabled" });
+    assert.equal((await client.query("select count(*)::int as n from app.user_sessions where user_id=$1 and revoked_at is null", [targetId])).rows[0].n, 0, "Sesi target dicabut saat disable");
+    await assert.rejects(setAccountStatus(actor, targetId, "disabled"), expectHttp("STATUS_UNCHANGED"));
+    const enabled = await setAccountStatus(actor, targetId, "active");
+    assert.deepEqual(enabled, { id: targetId, status: "active" });
+    await assert.rejects(setAccountStatus(actor, randomUUID(), "disabled"), expectHttp("USER_NOT_FOUND"));
+    await assert.rejects(setRole(actor, profileId, "admin", false), expectHttp("SELF_LOCKOUT"));
+    await assert.rejects(setAccountStatus(actor, profileId, "disabled"), expectHttp("SELF_LOCKOUT"));
+    const adminAudit = await client.query("select action from app.audit_logs where entity_id=$1 and action like 'admin.%' order by created_at", [targetId]);
+    assert.deepEqual(adminAudit.rows.map((row) => row.action), ["admin.role.granted", "admin.role.revoked", "admin.account.disabled", "admin.account.enabled"]);
+    await client.query("delete from app.audit_logs where entity_id=$1", [targetId]);
+    await client.query("delete from app.profiles where id=$1", [targetId]);
+    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, SMTP retry, dead-letter, checksum rejection, admin role/status management + SELF_LOCKOUT.");
   } finally {
     if (propertyId) { await client.query("delete from app.outbox_events where payload->>'propertyId'=$1", [propertyId]); await client.query("delete from app.audit_logs where entity_id=$1 or actor_id=$2", [propertyId, profileId]); await client.query("delete from app.leads where property_id=$1", [propertyId]); await client.query("delete from app.properties where id=$1", [propertyId]); }
     if (storage.startsWith(path.join(os.tmpdir(), "lelang-backend-test-"))) await rm(storage, { recursive: true, force: true });

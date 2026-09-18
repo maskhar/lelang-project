@@ -25,11 +25,12 @@ export async function POST(request: NextRequest) {
     await getDatabase().transaction(async (transaction) => {
       const [profile] = await transaction.select({ id: profiles.id, status: profiles.status }).from(profiles).where(eq(profiles.id, actor.profileId)).for("update");
       if (!profile) throw new AuthHttpError(404, "NOT_FOUND", "Akun tidak ditemukan.");
+      const removedRoles = (await transaction.select({ role: userRoles.role }).from(userRoles).where(eq(userRoles.userId, profile.id))).map((row) => row.role);
       await transaction.update(userSessions).set({ revokedAt: new Date() }).where(and(eq(userSessions.userId, profile.id), isNull(userSessions.revokedAt)));
       await transaction.delete(userIdentities).where(eq(userIdentities.userId, profile.id));
       await transaction.delete(userRoles).where(eq(userRoles.userId, profile.id));
       await transaction.update(profiles).set({ status: "disabled", name: "Pengguna dihapus", avatarUrl: null, phone: null, emailVerifiedAt: null, updatedAt: new Date() }).where(eq(profiles.id, profile.id));
-      await transaction.insert(auditLogs).values({ actorId: profile.id, action: "account.deleted", entityType: "profile", entityId: profile.id, metadata: { selfService: true } });
+      await transaction.insert(auditLogs).values({ actorId: profile.id, action: "account.deleted", entityType: "profile", entityId: profile.id, metadata: { selfService: true, removedRoles } });
     });
 
     const response = NextResponse.json({ data: { deleted: true } }, { headers: { "Cache-Control": "no-store" } });

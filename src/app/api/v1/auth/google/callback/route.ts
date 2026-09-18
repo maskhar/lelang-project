@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
   let response: NextResponse;
   try {
     await limitGoogleCallback();
+    await limitGoogleCallbackByIp(resolveClientIp(request));
     const parameters = request.nextUrl.searchParams;
     if (["state", "code", "error"].some((key) => parameters.getAll(key).length > 1)) throw new AuthHttpError(400, "INVALID_CALLBACK", "Callback Google tidak valid.");
     const transaction = await consumeGoogleTransaction(parameters.get("state"), request.cookies.get(googleCookieName)?.value);
