@@ -29,6 +29,8 @@
     "docker:user:disable": "node scripts/manage-user-docker.mjs disable",
     "docker:user:enable": "node scripts/manage-user-docker.mjs enable",
     "docker:user:role": "node scripts/manage-user-docker.mjs role",
+    "docker:backup": "node scripts/backup-docker.mjs",
+    "docker:test:restore": "node scripts/test-restore-docker.mjs",
     "test:auth": "node scripts/test-auth.mjs",
     "test:backend": "node scripts/run-backend-tests.mjs",
     "worker:outbox": "node --conditions=react-server --import=tsx scripts/run-worker.ts",

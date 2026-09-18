@@ -97,6 +97,38 @@ grant ulang). `npm run docker:down` menghentikan container tanpa menghapus volum
 - Login dev (`/api/v1/auth/dev-login`) mati sendiri pada `NODE_ENV=production`; jangan ubah gerbangnya.
 - Container `app` dan `worker` berjalan sebagai user non-root; `postgres` tidak diekspos ke network
   eksternal mana pun.
-- Backup: `scripts/backup-local.mjs` masih menargetkan development. Untuk produksi, dump lewat
-  `docker compose --env-file .env.docker.local exec postgres pg_dump -U postgres <POSTGRES_DB>` dan
-  salin folder `STORAGE_HOST_PATH`; simpan di lokasi privat.
+- Rate limit login: kuota per-IP (20 percobaan/menit untuk `/api/v1/auth/google/start` dan
+  `/callback`) membaca hop pertama header `X-Forwarded-For`, lalu `X-Real-IP`. Tunnel/reverse proxy
+  wajib menyetel salah satunya secara jujur. Bila tidak disetel, kuota per-IP dilewati dan hanya
+  kuota global (100/menit) yang berlaku — bukan bypass, tetapi perlindungannya lebih lemah.
+
+## Backup dan uji restore produksi
+
+Isi `DOCKER_BACKUP_ROOT` pada `.env.docker.local` dengan path absolut privat di luar repository.
+
+```bash
+npm run docker:backup
+```
+
+Menghasilkan dua artefak berpasangan di `DOCKER_BACKUP_ROOT` (mode `0600`):
+`lelang-prod-<waktu>.dump` (format custom `pg_dump`, dibuat lewat socket lokal di dalam container
+postgres sehingga tidak ada password yang ditulis ke mana pun) dan
+`lelang-prod-<waktu>-storage.tar.gz` (arsip **penuh** `STORAGE_HOST_PATH` setiap kali dijalankan —
+bukan incremental, jadi perhitungkan pertumbuhan ruang disk dan hapus arsip lama secara berkala).
+Bila salah satu langkah gagal, kedua artefak parsial dihapus dan exit code bukan nol.
+
+Backup tanpa uji restore tidak bisa dianggap backup:
+
+```bash
+npm run docker:test:restore
+```
+
+Menjalankan container PostgreSQL sementara di `127.0.0.1:25435` (development memakai 25434),
+`pg_restore --no-owner --no-privileges` dump terbaru, memverifikasi `app.properties`,
+`app.user_sessions`, `app.outbox_events`, lalu memeriksa arsip storage pasangannya bisa dibaca.
+Container dihentikan lagi pada blok `finally`, termasuk ketika verifikasi gagal. Database produksi
+tidak pernah disentuh.
+
+Penjadwalan di host Windows: buat entri Task Scheduler yang menjalankan `npm run docker:backup`
+pada direktori repository (harian di luar jam sibuk), dan jalankan `npm run docker:test:restore`
+minimal sebulan sekali secara manual atau terjadwal.
