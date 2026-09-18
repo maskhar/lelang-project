@@ -291,7 +291,7 @@ h1 {
   font-weight: 600;
   letter-spacing: 0.04em;
 }
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 select {
   min-height: 44px;
   background: white;
@@ -302,6 +302,17 @@ select {
   width: 100%;
   min-width: 0;
   font-size: 14px;
+}
+/* Checkbox/radio tidak boleh ikut ukuran field teks di atas (dulu melar 100% lebar x 44px tinggi
+   dan lepas dari baris labelnya). Belum ada radio di kode saat ini, dikecualikan untuk jaga-jaga. */
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  accent-color: var(--gold);
+  vertical-align: middle;
+  cursor: pointer;
 }
 .stats {
   display: flex;
