@@ -44,8 +44,9 @@ export default function PropertyForm({ initial, onSave, disabled = false, status
     finally { setSaving(false); }
   }
 
-  return <form className={styles.form} onSubmit={submit}><fieldset disabled={saving || disabled}>
-    <div className={styles.skuStatus}><label>SKU produk<input name="sku" pattern="LP-[A-Za-z0-9]{6,32}" maxLength={35} defaultValue={initial?.sku} placeholder="Kosongkan untuk otomatis" aria-describedby="sku-help" /></label>{statusActions && <aside className={styles.statusEditor}><strong>Edit status langsung</strong>{statusActions}</aside>}</div><p id="sku-help" className={styles.full}>Format manual: LP- diikuti 6–32 huruf atau angka. Kosongkan saat membuat properti untuk generate otomatis.</p>
+  // statusActions sits outside the disabled fieldset: the content lock must not grey out admin review decisions.
+  return <form className={styles.form} onSubmit={submit}>{statusActions && <aside className={styles.statusEditor}><strong>Status &amp; review</strong>{statusActions}</aside>}<fieldset disabled={saving || disabled}>
+    <label>SKU produk<input name="sku" pattern="LP-[A-Za-z0-9]{6,32}" maxLength={35} defaultValue={initial?.sku} placeholder="Kosongkan untuk otomatis" aria-describedby="sku-help" /></label><p id="sku-help" className={styles.full}>Format manual: LP- diikuti 6–32 huruf atau angka. Kosongkan saat membuat properti untuk generate otomatis.</p>
     <label className={styles.full}>Judul<input name="title" required minLength={5} maxLength={120} defaultValue={initial?.title} /></label>
     <label>Kota/kabupaten<input value={city} onChange={(event) => setCity(event.target.value)} list="editor-cities" required /><datalist id="editor-cities">{indonesianCities.map((item) => <option value={item.city} key={item.city}>{item.province}</option>)}</datalist></label>
     <label>Provinsi<input value={province} readOnly /></label>

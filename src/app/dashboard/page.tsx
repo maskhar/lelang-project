@@ -64,7 +64,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
 
       <div className={styles.stats}>
         <div className={styles.stat} data-tone="green"><span>Terpublikasi</span><strong>{published}</strong><small>dari {listingTotal} listing · {sold} terjual</small></div>
-        <div className={styles.stat} data-tone="gold"><span>Menunggu review</span><strong>{needsReview}</strong><small><Link href="/dashboard/review">Buka antrean review</Link></small></div>
+        <div className={styles.stat} data-tone="gold"><span>Menunggu review</span><strong>{needsReview}</strong><small><Link href="/dashboard/properties?review=pending">Buka antrean review</Link></small></div>
         <div className={styles.stat} data-tone="gold"><span>Lead baru</span><strong>{newLeads}</strong><small>dari {leadTotal} lead · <Link href="/dashboard/leads">tindak lanjut</Link></small></div>
         <div className={styles.stat} data-tone={summary.outbox.deadLetter > 0 ? "red" : undefined}><span>Outbox</span><strong>{summary.outbox.pending}</strong><small>{summary.outbox.deadLetter} gagal permanen · <Link href="/dashboard/outbox">lihat antrean</Link></small></div>
       </div>
@@ -72,17 +72,19 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       <div className={styles.grid}>
         <section className={styles.panel}>
           <div className={styles.panelHead}><h2>Aktivitas 14 hari</h2><span className={styles.meta}>{activityTotals.leads} lead · {activityTotals.published} publikasi · {activityTotals.logins} login</span></div>
-          <div className={styles.chart} role="img" aria-label={"Aktivitas harian: " + summary.activity.map((day) => dayLabel(day.day) + " " + day.leads + " lead, " + day.published + " publikasi, " + day.logins + " login").join("; ")}>
-            {summary.activity.map((day) => (
-              <div className={styles.chartCol} key={day.day}>
-                <span className={styles.chartTip}>{dayLabel(day.day)}: {day.leads} lead · {day.published} publikasi · {day.logins} login</span>
-                {day.logins > 0 && <div className={styles.chartSeg} data-series="logins" style={{ height: (day.logins / activityMax) * 100 + "%" }} />}
-                {day.published > 0 && <div className={styles.chartSeg} data-series="published" style={{ height: (day.published / activityMax) * 100 + "%" }} />}
-                {day.leads > 0 && <div className={styles.chartSeg} data-series="leads" style={{ height: (day.leads / activityMax) * 100 + "%" }} />}
-              </div>
-            ))}
+          <div className={styles.chartScroll}>
+            <div className={styles.chart} role="img" aria-label={"Aktivitas harian: " + summary.activity.map((day) => dayLabel(day.day) + " " + day.leads + " lead, " + day.published + " publikasi, " + day.logins + " login").join("; ")}>
+              {summary.activity.map((day) => (
+                <div className={styles.chartCol} key={day.day}>
+                  <span className={styles.chartTip}>{dayLabel(day.day)}: {day.leads} lead · {day.published} publikasi · {day.logins} login</span>
+                  {day.logins > 0 && <div className={styles.chartSeg} data-series="logins" style={{ height: (day.logins / activityMax) * 100 + "%" }} />}
+                  {day.published > 0 && <div className={styles.chartSeg} data-series="published" style={{ height: (day.published / activityMax) * 100 + "%" }} />}
+                  {day.leads > 0 && <div className={styles.chartSeg} data-series="leads" style={{ height: (day.leads / activityMax) * 100 + "%" }} />}
+                </div>
+              ))}
+            </div>
+            <div className={styles.chartAxis} aria-hidden="true">{summary.activity.map((day) => <span key={day.day}>{dayLabel(day.day)}</span>)}</div>
           </div>
-          <div className={styles.chartAxis} aria-hidden="true">{summary.activity.map((day) => <span key={day.day}>{dayLabel(day.day)}</span>)}</div>
           <div className={styles.chartLegend}><span><i style={{ background: "#c89b3c" }} />Lead</span><span><i style={{ background: "#2f6b4f" }} />Publikasi</span><span><i style={{ background: "#14213d", opacity: .7 }} />Login</span></div>
         </section>
 

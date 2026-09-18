@@ -9,7 +9,6 @@ import styles from "./dashboard-shell.module.css";
 
 const staffLinks = [
   { href: "/dashboard/properties", label: "Properti" },
-  { href: "/dashboard/review", label: "Review" },
   { href: "/dashboard/leads", label: "Lead" },
 ];
 

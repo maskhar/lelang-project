@@ -85,15 +85,15 @@ export default function AssignmentsView({ isAdmin }: { isAdmin: boolean }) {
     <section className={styles.panel} aria-busy={busy}>
       {error && <p role="alert" className={styles.error}>{error}</p>}
       {notice && <p role="status">{notice}</p>}
-      {items.length ? <table className={styles.table}>
+      {items.length ? <div className={styles.tableWrap}><table className={styles.table}>
         <thead><tr><th>Properti</th>{isAdmin && <th>Agent</th>}<th>Ditugaskan</th>{isAdmin && <th>Aksi</th>}</tr></thead>
         <tbody>{items.map((item) => <tr key={item.id}>
-          <td>{item.title}{item.note && <><br /><small>{item.note}</small></>}</td>
-          {isAdmin && <td>{item.agentName}<br /><small>{item.agentEmail}</small></td>}
-          <td>{timestamp(item.assignedAt)}</td>
+          <td data-label="Properti">{item.title}{item.note && <><br /><small>{item.note}</small></>}</td>
+          {isAdmin && <td data-label="Agent">{item.agentName}<br /><small>{item.agentEmail}</small></td>}
+          <td data-label="Ditugaskan">{timestamp(item.assignedAt)}</td>
           {isAdmin && <td><button type="button" disabled={busy} onClick={() => void unassign(item)}>Cabut</button></td>}
         </tr>)}</tbody>
-      </table> : <p className={styles.empty}>{isAdmin ? "Belum ada penugasan aktif." : "Belum ada listing yang ditugaskan kepada Anda."}</p>}
+      </table></div> : <p className={styles.empty}>{isAdmin ? "Belum ada penugasan aktif." : "Belum ada listing yang ditugaskan kepada Anda."}</p>}
     </section>
   </>;
 }
