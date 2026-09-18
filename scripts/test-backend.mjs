@@ -40,7 +40,7 @@ async function main() {
     const submitted = await transitionListing(actor, propertyId, { version: 2, action: "submit" }); assert.equal(submitted.version, 3);
     await assert.rejects(transitionListing(actor, propertyId, { version: 3, action: "approve" }), (error) => error instanceof AuthHttpError && error.code === "MEDIA_NOT_READY");
     await assert.rejects(createLead({ propertyId, name: "Pengunjung", email: "visitor@example.invalid", consent: true }), (error) => error instanceof AuthHttpError && error.code === "NOT_FOUND");
-    const audit = await client.query("select action from app.audit_logs where entity_id=$1 order by created_at", [propertyId]); assert.deepEqual(audit.rows.map((row) => row.action), ["property.created", "property.edited", "property.submit"]);
+    const audit = await client.query("select action from app.audit_logs where entity_id=$1", [propertyId]); assert.deepEqual(audit.rows.map((row) => row.action).sort(), ["property.created", "property.edited", "property.submit"]);
     const outbox = await client.query("select type from app.outbox_events where payload->>'propertyId'=$1", [propertyId]); assert.equal(outbox.rows.length, 1);
     const bytes = await sharp({ create: { width: 10, height: 10, channels: 3, background: "red" } }).png().toBuffer();
     const stored = await saveQuarantine(new File([bytes], "test.png", { type: "image/png" }));
@@ -130,8 +130,10 @@ async function main() {
     await assert.rejects(setAccountStatus(actor, randomUUID(), "disabled"), expectHttp("USER_NOT_FOUND"));
     await assert.rejects(setRole(actor, profileId, "admin", false), expectHttp("SELF_LOCKOUT"));
     await assert.rejects(setAccountStatus(actor, profileId, "disabled"), expectHttp("SELF_LOCKOUT"));
-    const adminAudit = await client.query("select action from app.audit_logs where entity_id=$1 and action like 'admin.%' order by created_at", [targetId]);
-    assert.deepEqual(adminAudit.rows.map((row) => row.action), ["admin.role.granted", "admin.role.revoked", "admin.account.disabled", "admin.account.enabled"]);
+    // created_at bisa tie antar transaksi (resolusi clock), dan order by created_at tanpa tiebreak
+    // tidak deterministik — bandingkan sebagai himpunan terurut, bukan urutan insert.
+    const adminAudit = await client.query("select action from app.audit_logs where entity_id=$1 and action like 'admin.%'", [targetId]);
+    assert.deepEqual(adminAudit.rows.map((row) => row.action).sort(), ["admin.account.disabled", "admin.account.enabled", "admin.role.granted", "admin.role.revoked"]);
     await client.query("delete from app.audit_logs where entity_id=$1", [targetId]);
     await client.query("delete from app.profiles where id=$1", [targetId]);
     console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, SMTP retry, dead-letter, checksum rejection, admin role/status management + SELF_LOCKOUT.");

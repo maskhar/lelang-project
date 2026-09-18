@@ -104,9 +104,10 @@ async function main() {
     assert.ok(created.rows[0].email_verified_at);
     const grantedRoles = await admin.query("SELECT role FROM app.user_roles WHERE user_id = $1", [created.rows[0].id]);
     assert.deepEqual(grantedRoles.rows.map((row: { role: string }) => row.role), ["buyer"], "Role signup hanya buyer");
-    const signupAudit = await admin.query("SELECT action, metadata FROM app.audit_logs WHERE actor_id = $1 ORDER BY created_at", [created.rows[0].id]);
-    assert.deepEqual(signupAudit.rows.map((row: { action: string }) => row.action), ["auth.google.signup", "auth.google.login"]);
-    assert.deepEqual(signupAudit.rows[0].metadata, { role: "buyer", provider: "google" });
+    // created_at bisa tie antar transaksi; identifikasi baris lewat action, bukan posisi urutan.
+    const signupAudit = await admin.query("SELECT action, metadata FROM app.audit_logs WHERE actor_id = $1", [created.rows[0].id]);
+    assert.deepEqual(signupAudit.rows.map((row: { action: string }) => row.action).sort(), ["auth.google.login", "auth.google.signup"]);
+    assert.deepEqual(signupAudit.rows.find((row: { action: string }) => row.action === "auth.google.signup")?.metadata, { role: "buyer", provider: "google" });
     // Email non-otoritatif (bukan gmail, tanpa hd) tidak boleh memicu pendaftaran mandiri.
     who.subject = "nonauth-" + randomUUID();
     who.email = "nonauth-" + randomUUID() + "@contoh.invalid";
