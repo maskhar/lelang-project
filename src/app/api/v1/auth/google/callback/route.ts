@@ -3,9 +3,9 @@ import { getAuthConfig } from "@/server/auth/config";
 import { issueCsrf } from "@/server/auth/csrf";
 import { consumeGoogleTransaction, googleCookieName, verifyGoogleCode } from "@/server/auth/google";
 import { AuthHttpError, authErrorResponse } from "@/server/auth/http";
-import { limitGoogleCallback } from "@/server/auth/rate-limit";
+import { limitGoogleCallback, limitGoogleCallbackByIp } from "@/server/auth/rate-limit";
 import { loginWithGoogle } from "@/server/auth/service";
-import { clientFingerprint, sessionCookieName } from "@/server/auth/session";
+import { clientFingerprint, resolveClientIp, sessionCookieName } from "@/server/auth/session";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
