@@ -92,7 +92,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
           <section className={styles.panel}>
             <div className={styles.panelHead}><h2>Data listing</h2>{locked && <span className={styles.badge} data-status="pending">Terkunci</span>}</div>
             <p>Setiap simpan membuat revisi baru. Foto revisi sebelumnya tidak disalin — unggah ulang sebelum review. Snapshot publik lama tetap tampil sampai disetujui.</p>
-            <PropertyForm key={id + ":" + formKey} initial={initial} onSave={save} disabled={locked || busy} statusActions={<><ListingReview id={id} version={detail.property.version} isAdmin={isAdmin} onChanged={async () => { await load(); }} />{detail.permissions.canMarkSold && detail.property.publicationStatus === "published" && detail.property.availabilityStatus === "available" && <PropertyAvailability id={id} version={detail.property.version} onChanged={async () => { await load(); }} />}</>} />
+            <PropertyForm key={id + ":" + formKey} initial={initial} onSave={save} disabled={locked || busy} statusActions={<><ListingReview id={id} version={detail.property.version} isAdmin={isAdmin} publicationStatus={detail.property.publicationStatus} onChanged={async () => { await load(); setFormKey((current) => current + 1); }} />{detail.permissions.canMarkSold && detail.property.publicationStatus === "published" && detail.property.availabilityStatus === "available" && <PropertyAvailability id={id} version={detail.property.version} onChanged={async () => { await load(); }} />}</>} />
           </section>
 
 

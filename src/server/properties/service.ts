@@ -74,21 +74,23 @@ export async function transitionListing(actor: Actor, id: string, input: z.infer
     if (!property) throw missing();
     if (input.action === "submit" && !isStaff(actor) && property.ownerId !== actor.profileId) throw denied();
     if (property.version !== input.version) throw conflict();
-    const allowed = input.action === "submit" ? ["draft", "revision_required"] : input.action === "archive" ? ["draft", "pending_review", "revision_required", "published", "paused", "rejected"] : ["pending_review"];
+    const allowed = input.action === "submit" ? ["draft", "revision_required"] : input.action === "archive" ? ["draft", "pending_review", "revision_required", "published", "paused", "rejected"] : input.action === "unarchive" ? ["archived"] : ["pending_review"];
     const [revision] = await transaction.select().from(propertyRevisions).where(eq(propertyRevisions.propertyId, id)).orderBy(desc(propertyRevisions.revisionNumber)).limit(1);
     if (!revision) throw missing();
     const reviewAllowed = input.action === "submit" ? ["draft", "revision_required"] : ["pending"];
-    if (input.action === "archive" ? !allowed.includes(property.publicationStatus) : property.publicationStatus === "archived" || !reviewAllowed.includes(revision.status)) throw new AuthHttpError(409, "INVALID_TRANSITION", "Transisi tidak valid.");
+    if (["archive", "unarchive"].includes(input.action) ? !allowed.includes(property.publicationStatus) : property.publicationStatus === "archived" || !reviewAllowed.includes(revision.status)) throw new AuthHttpError(409, "INVALID_TRANSITION", "Transisi tidak valid.");
     if (input.action === "approve") {
       const media = await transaction.select().from(propertyMedia).where(eq(propertyMedia.revisionId, revision.id));
       if (!media.some((item) => item.status === "ready" && item.isCover) || media.some((item) => item.status === "pending")) throw new AuthHttpError(409, "MEDIA_NOT_READY", "Sampul siap wajib tersedia; tunggu verifikasi foto.");
     }
     const details = revision.listingSnapshot;
     if (input.action === "approve" && !details) throw new AuthHttpError(409, "SNAPSHOT_REQUIRED", "Simpan revisi baru sebelum publikasi.");
-    const status = { submit: "pending_review", approve: "published", revision: "revision_required", reject: "rejected", archive: "archived" } as const;
-    const review = { submit: "pending", approve: "approved", revision: "revision_required", reject: "rejected", archive: "rejected" } as const;
+    // unarchive mengembalikan ke draft, bukan langsung published: listing harus lewat submit/approve
+    // lagi supaya admin memeriksa ulang snapshot dan foto sebelum tampil publik kedua kalinya.
+    const status = { submit: "pending_review", approve: "published", revision: "revision_required", reject: "rejected", archive: "archived", unarchive: "draft" } as const;
+    const review = { submit: "pending", approve: "approved", revision: "revision_required", reject: "rejected", archive: "rejected", unarchive: "draft" } as const;
     await transaction.update(propertyRevisions).set({ status: review[input.action], reviewedBy: input.action === "submit" ? null : actor.profileId, reviewReason: input.reason ?? null, updatedAt: new Date() }).where(eq(propertyRevisions.id, revision.id));
-    const [updated] = await transaction.update(properties).set({ publicationStatus: property.publishedRevisionId && !["approve", "archive"].includes(input.action) ? property.publicationStatus : status[input.action], version: property.version + 1, updatedAt: new Date(), ...(input.action === "approve" ? { publishedRevisionId: revision.id, publishedAt: new Date(), saleMode: details!.saleMode, type: details!.type, askingPrice: details!.askingPrice, provinceCode: regionKey(details!.province), cityCode: regionKey(details!.city) } : {}) }).where(eq(properties.id, id)).returning();
+    const [updated] = await transaction.update(properties).set({ publicationStatus: property.publishedRevisionId && !["approve", "archive", "unarchive"].includes(input.action) ? property.publicationStatus : status[input.action], version: property.version + 1, updatedAt: new Date(), ...(input.action === "approve" ? { publishedRevisionId: revision.id, publishedAt: new Date(), saleMode: details!.saleMode, type: details!.type, askingPrice: details!.askingPrice, provinceCode: regionKey(details!.province), cityCode: regionKey(details!.city) } : {}) }).where(eq(properties.id, id)).returning();
     await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property." + input.action, entityType: "property", entityId: id, metadata: { reason: input.reason ?? null, revisionId: revision.id } });
     await transaction.insert(outboxEvents).values({ type: "property.review", payload: { propertyId: id, action: input.action } });
     return updated;

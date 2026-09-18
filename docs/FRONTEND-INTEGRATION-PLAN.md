@@ -71,7 +71,7 @@ Tampilkan revision aktif, progress per file, status pending/ready/rejected, cove
 
 ### Review
 
-Buat src/app/dashboard/review/page.tsx. Filter pending_review dari GET /api/v1/admin/properties. Approve hanya aktif bila cover ready dan tidak ada media pending. Revision/reject/archive mewajibkan alasan.
+Buat src/app/dashboard/review/page.tsx. Filter pending_review dari GET /api/v1/admin/properties. Approve hanya aktif bila cover ready dan tidak ada media pending. Revision/reject/archive mewajibkan alasan. Listing archived hanya menampilkan tombol "Batalkan arsip" (`action: unarchive`, admin) yang mengembalikannya ke draft untuk diulang lewat submit/approve.
 
 ### Lead
 

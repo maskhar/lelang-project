@@ -1,14 +1,16 @@
 "use client";
 import { useState } from "react";
 
-const actions = [["submit", "Kirim review"], ["approve", "Publikasikan"], ["revision", "Minta revisi"], ["reject", "Tolak"], ["archive", "Arsipkan"]] as const;
-const adminOnly = ["approve", "revision", "reject", "archive"];
+const actions = [["submit", "Kirim review"], ["approve", "Publikasikan"], ["revision", "Minta revisi"], ["reject", "Tolak"], ["archive", "Arsipkan"], ["unarchive", "Batalkan arsip"]] as const;
+const adminOnly = ["approve", "revision", "reject", "archive", "unarchive"];
 
-export default function ListingReview({ id, version, isAdmin = true, onChanged }: { id: string; version: number; isAdmin?: boolean; onChanged: () => Promise<void> }) {
+export default function ListingReview({ id, version, isAdmin = true, publicationStatus, onChanged }: { id: string; version: number; isAdmin?: boolean; publicationStatus?: string; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState("");
-  const visible = actions.filter(([action]) => isAdmin || !adminOnly.includes(action));
+  // Listing terarsip hanya punya satu jalan keluar: batalkan arsip lalu ulangi alur review.
+  const archived = publicationStatus === "archived";
+  const visible = actions.filter(([action]) => (isAdmin || !adminOnly.includes(action)) && (action === "unarchive" ? archived : !archived));
   async function act(action: string) {
     setBusy(true); setMessage("");
     try {

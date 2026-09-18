@@ -121,7 +121,7 @@ Base URL `/api/v1`; JSON `camelCase`; UUID; waktu ISO 8601 UTC; cursor opaque ma
 - Publik: `GET /properties`, `GET /properties/{slug}`, `POST /leads`.
 - Editor/admin: draft, revision, upload intent, submit review, read/update lead.
 - Owner: draft/edit listing miliknya, ubah status lead pada listing miliknya. Agent: ubah status lead dan baca detail listing yang sedang ditugaskan kepadanya.
-- Admin: antrean review, approve/revision/reject/archive, audit log, akses request, dan `POST`/`DELETE`/`PATCH /admin/users` untuk grant/revoke role dan enable/disable akun (menolak aksi yang mengunci akun admin aktor sendiri dengan `422 SELF_LOCKOUT`; setiap perubahan mencabut sesi aktif target dan tercatat audit `admin.role.*`/`admin.account.*`).
+- Admin: antrean review, approve/revision/reject/archive/unarchive (unarchive hanya sah dari `archived` dan mengembalikan listing ke `draft`, bukan langsung publik — harus lewat submit/approve lagi), audit log, akses request, dan `POST`/`DELETE`/`PATCH /admin/users` untuk grant/revoke role dan enable/disable akun (menolak aksi yang mengunci akun admin aktor sendiri dengan `422 SELF_LOCKOUT`; setiap perubahan mencabut sesi aktif target dan tercatat audit `admin.role.*`/`admin.account.*`).
 - Setiap mutasi memakai Zod, policy server, audit event, dan optimistic version untuk edit listing.
 
 Policy minimum: editor hanya bekerja pada scope yang diizinkan; admin review dan operasi pengguna; draft/revision/lead/dokumen privat selalu 404 untuk pihak tak berhak, bukan membocorkan keberadaannya.

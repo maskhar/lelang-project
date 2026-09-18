@@ -85,6 +85,25 @@ async function main() {
     const current = await client.query("select version from app.properties where id=$1", [propertyId]);
     await transitionListing(actor, propertyId, { version: current.rows[0].version, action: "archive", reason: "Selesai pengujian" });
     await assert.rejects(publicListing(created.property.slug), (error) => error.code === "NOT_FOUND");
+    // Listing terarsip: semua aksi lain ditolak; hanya admin boleh unarchive, dan hasilnya draft (bukan
+    // langsung published) meski published_revision_id masih terisi — wajib submit/approve ulang.
+    const archivedVersion = (await client.query("select version, published_revision_id from app.properties where id=$1", [propertyId])).rows[0];
+    assert.ok(archivedVersion.published_revision_id, "Properti uji pernah published sebelum diarsipkan");
+    for (const action of ["submit", "approve", "archive"]) await assert.rejects(transitionListing(actor, propertyId, { version: archivedVersion.version, action, reason: "x-uji" }), (error) => error instanceof AuthHttpError && error.code === "INVALID_TRANSITION", "Aksi " + action + " ditolak saat archived");
+    await assert.rejects(editListing(actor, propertyId, archivedVersion.version, listing), (error) => error instanceof AuthHttpError && error.code === "INVALID_TRANSITION");
+    await assert.rejects(transitionListing({ ...actor, roles: ["editor"] }, propertyId, { version: archivedVersion.version, action: "unarchive" }), (error) => error instanceof AuthorizationError);
+    const unarchived = await transitionListing(actor, propertyId, { version: archivedVersion.version, action: "unarchive" });
+    assert.equal(unarchived.publicationStatus, "draft"); assert.equal(unarchived.version, archivedVersion.version + 1);
+    await assert.rejects(publicListing(created.property.slug), (error) => error.code === "NOT_FOUND", "Draft hasil unarchive tidak tampil publik");
+    await assert.rejects(transitionListing(actor, propertyId, { version: unarchived.version, action: "unarchive" }), (error) => error instanceof AuthHttpError && error.code === "INVALID_TRANSITION", "Unarchive hanya berlaku pada archived");
+    // Submit pada properti ber-published_revision_id tidak mengubah publicationStatus (desain existing:
+    // status publik hanya berubah lewat approve/archive/unarchive); antrean review membaca status revisi.
+    const resubmitted = await transitionListing(actor, propertyId, { version: unarchived.version, action: "submit" });
+    assert.equal(resubmitted.publicationStatus, "draft");
+    const pendingRevision = await client.query("select status from app.property_revisions where property_id=$1 order by revision_number desc limit 1", [propertyId]);
+    assert.equal(pendingRevision.rows[0].status, "pending");
+    const unarchiveAudit = await client.query("select count(*)::int as n from app.audit_logs where entity_id=$1 and action='property.unarchive'", [propertyId]);
+    assert.equal(unarchiveAudit.rows[0].n, 1, "Audit property.unarchive tercatat sekali");
     // Manajemen role/status akun oleh admin (Piece 2): grant/revoke role, disable/enable akun,
     // penjaga SELF_LOCKOUT, dan pencabutan sesi target di dalam transaksi yang sama.
     const targetId = randomUUID();

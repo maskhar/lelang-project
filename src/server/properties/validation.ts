@@ -26,7 +26,7 @@ export const listingInput = z.object({
 });
 
 export const editInput = z.object({ version: z.number().int().positive(), listing: listingInput }).strict();
-export const transitionInput = z.object({ version: z.number().int().positive(), action: z.enum(["submit", "approve", "revision", "reject", "archive"]), reason: z.string().trim().min(3).max(1000).optional() }).strict();
+export const transitionInput = z.object({ version: z.number().int().positive(), action: z.enum(["submit", "approve", "revision", "reject", "archive", "unarchive"]), reason: z.string().trim().min(3).max(1000).optional() }).strict();
 export const leadInput = z.object({ propertyId: z.uuid(), name: z.string().trim().min(2).max(120), email: z.email().max(320).optional(), phone: z.string().regex(/^\+?[0-9 ()-]{6,30}$/).optional(), message: z.string().trim().max(2000).optional(), consent: z.literal(true) }).strict().refine((value) => Boolean(value.email || value.phone), "Kontak wajib diisi.");
 export const leadEditInput = z.object({ status: z.enum(["new", "contacted", "closed", "spam"]) }).strict();
 export const identifier = z.uuid();
