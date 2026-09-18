@@ -34,3 +34,21 @@
 @media(max-width:600px){}
 @media print{.detailLayout{display:block}.sidebar{position:static;max-height:none;overflow:visible}}
 .sku{margin:6px 0 22px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;font-weight:700;letter-spacing:.06em;color:#5b6472}
+
+/* Form kirim minat (LeadForm) di dalam .contact yang berlatar gelap. Pola sama dengan .form pada
+   dashboard.module.css: fieldset dipakai untuk grouping semantik, bukan untuk border bawaan browser,
+   dan setiap label diatur flex-column agar input selalu selebar kontainer di semua lebar layar. */
+.form{margin-top:22px;max-width:520px;width:100%}
+.form fieldset{display:flex;flex-direction:column;gap:14px;min-width:0;margin:0;padding:0;border:0}
+.form legend{margin:0 0 4px;padding:0;color:white;font:600 16px var(--font-serif),serif}
+.form label{display:flex;flex-direction:column;gap:6px;min-width:0;color:#c7cedc;font-size:13px;font-weight:500}
+.form input,.form textarea{width:100%;min-height:44px;padding:10px 12px;border:1px solid transparent;border-radius:4px;background:white;color:#1c1e21;font:inherit;font-size:14px}
+.form textarea{min-height:96px;resize:vertical}
+/* Checkbox harus lepas dari aturan ukuran field teks; tanpa ini ia ikut melar selebar kontainer. */
+.form .consent{flex-direction:row;align-items:flex-start;gap:10px}
+.form input[type="checkbox"]{flex:none;width:18px;height:18px;min-height:0;margin-top:2px;padding:0;accent-color:var(--gold);cursor:pointer}
+.form button{align-self:flex-start;margin-top:4px}
+.form button:disabled{opacity:.65;cursor:not-allowed}
+.form p[role="alert"]{margin-top:12px;color:#ffb4b4}
+.form p[role="status"]:not(:empty){margin-top:12px;color:#9fe0b8}
+@media(max-width:600px){.form{max-width:none}.form input,.form textarea{font-size:16px}.form button{width:100%}}
