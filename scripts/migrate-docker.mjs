@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { loadEnvFile } from "node:process";
@@ -22,9 +21,10 @@ target.password = password;
 target.port = port;
 target.pathname = "/" + (process.env.POSTGRES_DB || "lelang_properti_prod");
 
+// drizzle-kit 0.31 tidak mengekspos "./package.json" di field "exports", jadi require.resolve
+// subpath itu gagal (ERR_PACKAGE_PATH_NOT_EXPORTED). Entry utama "." tetap diekspos dan berada
+// di root paket yang sama dengan bin.cjs, jadi dipakai untuk menemukan root paket.
 const require = createRequire(import.meta.url);
-const packagePath = require.resolve("drizzle-kit/package.json");
-const { bin } = JSON.parse(readFileSync(packagePath, "utf8"));
-const binPath = path.join(path.dirname(packagePath), typeof bin === "string" ? bin : bin["drizzle-kit"]);
+const binPath = path.join(path.dirname(require.resolve("drizzle-kit")), "bin.cjs");
 const result = spawnSync(process.execPath, [binPath, "migrate"], { stdio: "inherit", env: { ...process.env, DATABASE_MIGRATION_URL: target.toString() } });
 process.exitCode = result.status ?? 1;

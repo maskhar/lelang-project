@@ -1,4 +1,7 @@
-GRANT CONNECT ON DATABASE lelang_properti_dev TO lelang_app;
+-- File ini dipakai development (lelang_properti_dev) dan produksi Docker (lelang_properti_prod).
+-- GRANT CONNECT butuh nama database literal, jadi dibangun dinamis dari current_database()
+-- agar tidak pernah salah menunjuk database environment lain.
+DO $$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO lelang_app', current_database()); END $$;
 GRANT USAGE ON SCHEMA app TO lelang_app;
 GRANT SELECT ON ALL TABLES IN SCHEMA app TO lelang_app;
 GRANT UPDATE (updated_at, email_verified_at, name, avatar_url, phone, email, status) ON app.profiles TO lelang_app;
