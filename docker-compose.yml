@@ -1,0 +1,113 @@
+# Stack produksi self-hosted. Jalankan: docker compose --env-file .env.docker.local up -d --build
+# Port host default dipilih dari port yang belum dipakai mesin ini: 3009 (app) dan 15433 (postgres,
+# development memakai 15432). Keduanya bind ke 127.0.0.1 — akses publik disediakan tunnel/reverse
+# proxy yang menempel pada carubra-network atau maskhar-network, bukan lewat port host.
+name: project-lelangan-properti
+
+services:
+  postgres:
+    image: postgres:17.6-bookworm
+    container_name: project-lelangan-properti-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lelang_properti_prod}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Isi POSTGRES_ADMIN_PASSWORD pada .env.docker.local}
+      APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Isi POSTGRES_APP_PASSWORD pada .env.docker.local}
+      MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:?Isi POSTGRES_MIGRATOR_PASSWORD pada .env.docker.local}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-15433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.docker.sh:/docker-entrypoint-initdb.d/01-app.sh:ro
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-lelang_properti_prod}"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  app:
+    build:
+      context: .
+      target: runner
+    image: project-lelangan-properti-app:latest
+    container_name: project-lelangan-properti-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Role runtime (lelang_app) berbeda dari role migrasi (lelang_migrator); hak akses dibatasi
+      # scripts/grant-runtime.sql. Host "postgres" adalah nama service pada network internal.
+      DATABASE_URL: postgresql://lelang_app:${POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-lelang_properti_prod}?sslmode=disable
+      APP_BASE_URL: ${APP_BASE_URL:?Isi APP_BASE_URL pada .env.docker.local}
+      AUTH_SESSION_COOKIE_NAME: ${AUTH_SESSION_COOKIE_NAME:-lelang_session}
+      AUTH_CSRF_SECRET: ${AUTH_CSRF_SECRET:?Isi AUTH_CSRF_SECRET pada .env.docker.local}
+      AUTH_RATE_LIMIT_SECRET: ${AUTH_RATE_LIMIT_SECRET:?Isi AUTH_RATE_LIMIT_SECRET pada .env.docker.local}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?Isi GOOGLE_CLIENT_ID pada .env.docker.local}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?Isi GOOGLE_CLIENT_SECRET pada .env.docker.local}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:?Isi GOOGLE_REDIRECT_URI pada .env.docker.local}
+      STORAGE_ROOT: /data/storage
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      NOTIFICATION_EMAIL: ${NOTIFICATION_EMAIL:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+    volumes:
+      - ${STORAGE_HOST_PATH:?Isi STORAGE_HOST_PATH pada .env.docker.local}:/data/storage
+    ports:
+      - "127.0.0.1:${APP_PORT:-3009}:3000"
+    networks:
+      - internal
+      - carubra-network
+      - maskhar-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health/live').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    build:
+      context: .
+      target: worker
+    image: project-lelangan-properti-worker:latest
+    container_name: project-lelangan-properti-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://lelang_app:${POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-lelang_properti_prod}?sslmode=disable
+      STORAGE_ROOT: /data/storage
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      NOTIFICATION_EMAIL: ${NOTIFICATION_EMAIL:-}
+    volumes:
+      - ${STORAGE_HOST_PATH:?Isi STORAGE_HOST_PATH pada .env.docker.local}:/data/storage
+    networks:
+      - internal
+
+networks:
+  # Database hanya menempel di network internal; tunnel/proxy lintas project tidak perlu akses DB.
+  internal:
+    name: project-lelangan-properti-internal
+  carubra-network:
+    external: true
+  maskhar-network:
+    external: true
+
+volumes:
+  postgres_data:
+    name: project-lelangan-properti-postgres-data

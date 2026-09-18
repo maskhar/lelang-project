@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Image Docker produksi hanya menyalin .next/standalone, .next/static, dan public/ sehingga
+  // devDependencies tidak ikut ke runtime. Tidak berpengaruh pada `next dev`.
+  output: "standalone",
   allowedDevOrigins: [
     "lelang.carubra.com",
     "lelanganproperti.my.id",

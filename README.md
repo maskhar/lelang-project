@@ -41,3 +41,7 @@ Aturan: `AGENTS.md`. Kebutuhan: `docs/PRD.md`. Desain: `docs/SDD.md`. Setup/stat
 Backend lokal: `npm run backend:setup` (sekali), `npm run backend:up`, `npm run db:migrate`, `npm run db:grant:local`. Verifikasi API: `npm run build` lalu `npm run test:auth`. Jangan jalankan setup ulang bila file environment sudah ada.
 
 Setujui akun Google development sebelum login: `npm run user:approve -- --email anda@gmail.com --name "Nama Anda" --role admin`. Detail pembatasan CLI ada pada `docs/backend-setup.md`.
+
+## Deploy produksi (Docker)
+
+Stack self-hosted terpisah dari development: `docker-compose.yml`, `Dockerfile`, `.env.docker.example`. Panduan lengkap: `docs/docker-deploy.md`.

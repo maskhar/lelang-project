@@ -1,0 +1,2 @@
+# Skrip shell di-bind-mount ke container Linux; CRLF merusak shebang #!/bin/sh.
+*.sh text eol=lf

@@ -1,0 +1,22 @@
+# Jangan pernah menyalin secret atau artefak lokal ke build context.
+.env*
+!.env.example
+!.env.docker.example
+node_modules/
+.next/
+out/
+data/
+*.log
+*.tsbuildinfo
+.git/
+.claude/
+.codegraph/
+docs/
+tests/
+Dockerfile
+docker-compose.yml
+compose.backend.yml
+.dockerignore
+.gitignore
+README.md
+AGENTS.md

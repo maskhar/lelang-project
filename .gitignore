@@ -7,4 +7,6 @@ data/
 public/uploads/
 .env*
 !.env.example
+!.env.docker.example
 *.tsbuildinfo
+.codegraphy/*
