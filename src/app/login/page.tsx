@@ -1,8 +1,12 @@
 import Link from "next/link";
 import Image from "next/image";
+import { devLoginRoles, isDevRoleLoginEnabled } from "@/server/auth/dev-login";
 import styles from "./login.module.css";
 
+const roleLabels: Record<(typeof devLoginRoles)[number], string> = { admin: "Admin", editor: "Editor", owner: "Owner", agent: "Agent", buyer: "Buyer" };
+
 export default function LoginPage() {
+  const devLogin = isDevRoleLoginEnabled();
   return (
     <div className={styles.layout}>
       <header className={styles.header}>
@@ -29,6 +33,17 @@ export default function LoginPage() {
             Lanjutkan dengan Google
           </a>
           <p className={styles.footnote}>Google hanya memverifikasi identitas. Hak akses dikelola aplikasi.</p>
+
+          {devLogin && (
+            <div className={styles.devLogin}>
+              <p className={styles.devLoginLabel}>Dev only — masuk langsung sebagai role (tidak tersedia di produksi)</p>
+              <div className={styles.devLoginGrid}>
+                {devLoginRoles.map((role) => (
+                  <a key={role} className={styles.devLoginButton} href={"/api/v1/auth/dev-login?role=" + role}>{roleLabels[role]}</a>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </main>
 

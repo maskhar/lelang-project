@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3003",
+    "dev": "node scripts/dev.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -19,6 +19,7 @@
     "user:disable": "node scripts/manage-local-user.mjs disable",
     "user:enable": "node scripts/manage-local-user.mjs enable",
     "user:role": "node scripts/manage-local-user.mjs role",
+    "dev:seed-roles": "node scripts/seed-dev-roles.mjs",
     "test:auth": "node scripts/test-auth.mjs",
     "test:backend": "node scripts/run-backend-tests.mjs",
     "worker:outbox": "node --conditions=react-server --import=tsx scripts/run-worker.ts",
