@@ -187,14 +187,30 @@ export async function createLead(input: z.infer<typeof leadInput>, buyerId?: str
   });
 }
 
+// Kontak lead adalah PII (docs/PRD.md): daftar hanya memuat versi tersamar, kontak lengkap
+// diambil per lead lewat revealLeadContact yang tercatat di audit log.
+const maskContact = (value: string | null) => (!value ? value : value.length < 7 ? value.slice(0, 2) + "***" : value.slice(0, 3) + "***" + value.slice(-3));
+const leadScope = (actor: Actor) => {
+  const assigned = sql`exists (select 1 from app.property_assignments assignment where assignment.property_id = ${leads.propertyId} and assignment.agent_id = ${actor.profileId} and assignment.unassigned_at is null)`;
+  return isAgentOnly(actor) ? assigned : isBuyerOnly(actor) ? eq(leads.buyerId, actor.profileId) : isOwnerOnly(actor) ? eq(properties.ownerId, actor.profileId) : undefined;
+};
+
 export async function dashboardLeads(actor: Actor) {
   requireRole(actor, "admin", "editor", "owner", "agent", "buyer");
-  const database = getDatabase();
-  const agentOnly = isAgentOnly(actor);
-  const ownerOnly = isOwnerOnly(actor);
-  const buyerOnly = isBuyerOnly(actor);
-  const assigned = sql`exists (select 1 from app.property_assignments assignment where assignment.property_id = ${leads.propertyId} and assignment.agent_id = ${actor.profileId} and assignment.unassigned_at is null)`;
-  return database.select({ id: leads.id, propertyId: leads.propertyId, name: leads.name, email: leads.email, phone: leads.phone, message: leads.message, status: leads.status, createdAt: leads.createdAt }).from(leads).innerJoin(properties, eq(properties.id, leads.propertyId)).where(agentOnly ? assigned : buyerOnly ? eq(leads.buyerId, actor.profileId) : ownerOnly ? eq(properties.ownerId, actor.profileId) : undefined).orderBy(desc(leads.createdAt)).limit(100);
+  const rows = await getDatabase().select({ id: leads.id, propertyId: leads.propertyId, name: leads.name, email: leads.email, phone: leads.phone, message: leads.message, status: leads.status, createdAt: leads.createdAt }).from(leads).innerJoin(properties, eq(properties.id, leads.propertyId)).where(leadScope(actor)).orderBy(desc(leads.createdAt)).limit(100);
+  return rows.map((row) => ({ ...row, email: maskContact(row.email), phone: maskContact(row.phone) }));
+}
+
+export async function revealLeadContact(actor: Actor, id: string) {
+  id = identifier.parse(id);
+  requireRole(actor, "admin", "editor", "owner", "agent", "buyer");
+  const scope = leadScope(actor);
+  return getDatabase().transaction(async (transaction) => {
+    const [lead] = await transaction.select({ id: leads.id, propertyId: leads.propertyId, name: leads.name, email: leads.email, phone: leads.phone }).from(leads).innerJoin(properties, eq(properties.id, leads.propertyId)).where(scope ? and(eq(leads.id, id), scope) : eq(leads.id, id)).limit(1);
+    if (!lead) throw missing();
+    await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "lead.contact.viewed", entityType: "lead", entityId: lead.id, metadata: { propertyId: lead.propertyId } });
+    return { id: lead.id, name: lead.name, email: lead.email, phone: lead.phone };
+  });
 }
 
 export async function dashboardSummary(actor: Actor) {
