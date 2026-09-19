@@ -52,3 +52,14 @@
 .form p[role="alert"]{margin-top:12px;color:#ffb4b4}
 .form p[role="status"]:not(:empty){margin-top:12px;color:#9fe0b8}
 @media(max-width:600px){.form{max-width:none}.form input,.form textarea{font-size:16px}.form button{width:100%}}
+/* CTA sidebar dua kolom: "Hubungi pemilik" (anchor lokal) dan WhatsApp (wa.me dengan pesan terisi).
+   Di <=900px .summary sendiri jadi grid dua kolom, jadi baris ini dipaksa span penuh supaya kedua
+   tombol tidak berbagi satu sel sempit. Hijau #0f7c6e, bukan hijau brand WA (#25d366 dengan teks
+   putih hanya ~1.9:1, gagal kontras AA). */
+.contactRow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.whatsapp{background:#0f7c6e;color:#fff;gap:8px}
+.whatsapp svg{width:17px;height:17px;flex:none}
+.whatsapp:hover{background:#0c6156}
+.whatsapp:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+@media(max-width:900px){.summary .contactRow{grid-column:1/-1;align-self:end}}
+@media(max-width:600px){.contactRow{grid-template-columns:1fr}}
