@@ -16,5 +16,7 @@ GRANT INSERT, DELETE ON app.user_roles TO lelang_app;
 GRANT INSERT, DELETE ON app.user_identities TO lelang_app;
 GRANT INSERT, DELETE ON app.oauth_transactions TO lelang_app;
 GRANT INSERT ON app.audit_logs TO lelang_app;
+-- Konfigurasi webhook keluar: satu baris di-upsert admin, tidak pernah dihapus runtime.
+GRANT INSERT, UPDATE ON app.webhook_endpoints TO lelang_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON app.audit_logs FROM lelang_app;
 REVOKE CREATE ON SCHEMA app FROM lelang_app;

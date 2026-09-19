@@ -33,6 +33,7 @@ const adminLinks = [
   { href: "/dashboard/outbox", label: "Outbox" },
   { href: "/dashboard/users", label: "Akun" },
   { href: "/dashboard/access-requests", label: "Pengajuan akses" },
+  { href: "/dashboard/webhooks", label: "Webhook" },
 ];
 
 // Gabungan (union) tautan semua role non-staf yang dimiliki, tanpa duplikat href. Staf memakai staffLinks;

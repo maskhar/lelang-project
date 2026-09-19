@@ -66,8 +66,19 @@ Schema PostgreSQL aplikasi adalah `app`; journal Drizzle adalah `drizzle`. Tidak
 | `audit_logs` | Jejak mutasi sensitif append-only |
 | `outbox_events` | Pekerjaan setelah commit |
 | `auth_rate_limits` | Kuota atomik start/callback global dengan key HMAC dan expiry |
+| `webhook_endpoints` | Konfigurasi webhook keluar (satu baris `name='lead_notification'`): URL, secret terenkripsi, enabled |
 
 `saleMode`, `publicationStatus`, dan `availabilityStatus` terpisah. Harga memakai `BIGINT` rupiah. Semua waktu memakai `TIMESTAMPTZ` UTC. `updatedAt` diperbarui service sampai trigger audit yang disetujui ditambahkan.
+
+### 5.1 Webhook lead keluar (n8n)
+
+Setiap `createLead()` yang sukses mengantre event `lead.created` (email notifikasi internal, tidak berubah) dan, bila `app.webhook_endpoints` punya baris `name='lead_notification'` dengan `enabled=true`, event tambahan `webhook.lead_created` di `outbox_events` yang sama — dipakai ulang untuk retry/backoff eksponensial/dead-letter, tanpa mekanisme baru. Worker ([deliver-outbox.ts](../src/workers/deliver-outbox.ts)) membaca konfigurasi dan data lead+properti terbaru saat kirim, lalu POST JSON ke URL tersimpan.
+
+- **Tanda tangan**: `X-Lelang-Signature: sha256=HMAC-SHA256(secret, timestamp + "." + rawBody)`, dengan `X-Lelang-Timestamp` (unix detik) ikut ditandatangani supaya penerima bisa menolak request basi. Tidak ada nonce store di sisi aplikasi ini — jendela replay ditangani workflow n8n.
+- **Egress PII**: payload membawa kontak lead **asli** (nama/email/telepon/pesan), berbeda dari daftar dashboard yang menyamarkannya (`maskContact`) dan reveal yang diaudit (`lead.contact.viewed`). Ini keputusan sadar (kebutuhan otomasi WhatsApp) — keamanan datanya menjadi tanggung jawab instance n8n tujuan.
+- **Secret**: dibuat server (32 byte acak), disimpan AES-256-GCM (`WEBHOOK_SECRET_ENC_KEY`, hex 64 karakter, opsional — di luar `assertBootEnvironment` supaya deployment yang belum memakai fitur ini tidak gagal boot), tidak pernah muncul di response GET, audit log, atau log aplikasi. Ditampilkan sekali di admin setelah diputar.
+- **SSRF**: `parseWebhookUrl` sengaja **tidak** memblokir host privat/localhost (instance n8n admin lazimnya di jaringan itu) — beda dari `parseAuthOrigin`. Yang dibatasi hanya skema (`http`/`https`), tanpa userinfo, dan `fetch` dengan `redirect: "manual"` (3xx dianggap gagal, tidak pernah diikuti).
+- **Admin API** (`/api/v1/admin/webhooks*`, admin-only + CSRF): GET/PATCH konfigurasi, POST `/secret` memutar secret, POST `/test` mengirim payload contoh secara sinkron (`consumeRateLimit` 10/menit) supaya admin bisa memetakan field di n8n sambil melihat execution log-nya. Keberhasilan/kegagalan tiap kiriman **tidak** masuk `audit_logs` (hanya perubahan config/putar-secret/test) — jejak per-kiriman ada di `outbox_events.status/attempts`, sama seperti email outbox yang sudah ada.
 
 ## 6. Auth mandiri
 

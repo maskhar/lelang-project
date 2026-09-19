@@ -61,6 +61,7 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-}
       NOTIFICATION_EMAIL: ${NOTIFICATION_EMAIL:-}
       METRICS_TOKEN: ${METRICS_TOKEN:-}
+      WEBHOOK_SECRET_ENC_KEY: ${WEBHOOK_SECRET_ENC_KEY:-}
     volumes:
       - ${STORAGE_HOST_PATH:?Isi STORAGE_HOST_PATH pada .env.docker.local}:/data/storage
     ports:
@@ -89,6 +90,8 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://lelang_app:${POSTGRES_APP_PASSWORD}@project-lelangan-properti-postgres:5432/${POSTGRES_DB:-lelang_properti_prod}?sslmode=disable
+      # APP_BASE_URL dipakai worker untuk menyusun url/mapsUrl properti pada payload webhook lead->n8n.
+      APP_BASE_URL: ${APP_BASE_URL:?Isi APP_BASE_URL pada .env.docker.local}
       STORAGE_ROOT: /data/storage
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -96,6 +99,7 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
       NOTIFICATION_EMAIL: ${NOTIFICATION_EMAIL:-}
+      WEBHOOK_SECRET_ENC_KEY: ${WEBHOOK_SECRET_ENC_KEY:-}
     volumes:
       - ${STORAGE_HOST_PATH:?Isi STORAGE_HOST_PATH pada .env.docker.local}:/data/storage
     networks:

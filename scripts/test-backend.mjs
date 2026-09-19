@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import http from "node:http";
 import pg from "pg";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -12,6 +13,7 @@ async function main() {
   process.env.APP_BASE_URL = "http://localhost:3003";
   process.env.AUTH_CSRF_SECRET = "a".repeat(64);
   process.env.AUTH_RATE_LIMIT_SECRET = "b".repeat(64);
+  process.env.WEBHOOK_SECRET_ENC_KEY = "c".repeat(64);
   const { createListing, editListing, transitionListing, createLead, publicListing, markListingSold } = await import("../src/server/properties/service.ts");
   const { AuthHttpError } = await import("../src/server/auth/http.ts");
   const { AuthorizationError } = await import("../src/server/auth/actor.ts");
@@ -21,12 +23,15 @@ async function main() {
   const actor = { profileId, email: "backend-test@example.invalid", name: "Backend Test", roles: ["admin"] };
   const listing = { title: "Rumah pengujian backend", description: "Deskripsi valid untuk pengujian aturan domain backend.", type: "Rumah", city: "Malang", province: "Jawa Timur", saleMode: "direct_sale", askingPrice: 750000000, landAreaM2: 100, buildingAreaM2: 80, bedroomCount: 3, auctionStartsAt: null, auctionEndsAt: null };
   let propertyId;
+  let hookServer;
   const storage = await mkdtemp(path.join(os.tmpdir(), "lelang-backend-test-"));
   process.env.STORAGE_ROOT = storage;
   const { saveQuarantine } = await import("../src/server/storage/local.ts");
   const { processMedia } = await import("../src/workers/process-media.ts");
   const { catalog } = await import("../src/server/properties/catalog.ts");
   const { deliverOutbox } = await import("../src/workers/deliver-outbox.ts");
+  const { encryptWebhookSecret, generateWebhookSecret } = await import("../src/server/webhooks/crypto.ts");
+  const { signWebhookRequest } = await import("../src/server/webhooks/sign.ts");
   try {
     await client.connect();
     await client.query("insert into app.profiles(id,email,name,email_verified_at) values($1,$2,$3,now())", [profileId, actor.email, actor.name]);
@@ -56,6 +61,43 @@ async function main() {
     await assert.rejects(catalog(new URLSearchParams({ cursor: "invalid" })), (error) => error.code === "INVALID_CURSOR");
     const lead = await createLead({ propertyId, name: "Pengunjung", email: "visitor@example.invalid", consent: true });
     assert.ok(lead.id);
+    // Webhook keluar ke endpoint eksternal (n8n): payload membawa kontak asli, ditandatangani HMAC,
+    // dan hanya diantre saat baris konfigurasi ada + enabled.
+    const received = [];
+    hookServer = http.createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk) => { body += chunk; });
+      request.on("end", () => { received.push({ method: request.method, url: request.url, headers: request.headers, body }); response.writeHead(200, { "Content-Type": "application/json" }); response.end('{"ok":true}'); });
+    });
+    await new Promise((resolve) => hookServer.listen(0, "127.0.0.1", resolve));
+    const hookUrl = "http://127.0.0.1:" + hookServer.address().port + "/webhook/lead";
+    const hookSecret = generateWebhookSecret();
+    await client.query("insert into app.webhook_endpoints(name,url,secret_ciphertext,enabled) values('lead_notification',$1,$2,true)", [hookUrl, encryptWebhookSecret(hookSecret)]);
+    const webhookLead = await createLead({ propertyId, name: "Pengunjung webhook", email: "webhook@example.invalid", phone: "081200000000", message: "Minat lewat webhook", consent: true });
+    const queued = await client.query("select id,payload from app.outbox_events where type='webhook.lead_created'");
+    assert.equal(queued.rows.length, 1); assert.equal(queued.rows[0].payload.leadId, webhookLead.id);
+    // Event email lain ditahan sementara: assertion retry/dead-letter lead.created di bawah menghitung
+    // attempts secara persis, jadi percobaan SMTP tidak boleh ikut bertambah di sini.
+    await client.query("update app.outbox_events set available_at=now() + interval '1 hour' where type<>'webhook.lead_created' and status='pending'");
+    assert.equal(await deliverOutbox(), 1);
+    await client.query("update app.outbox_events set available_at=now() where status='pending'");
+    assert.equal(received.length, 1, "Endpoint webhook menerima tepat satu POST");
+    const delivery = received[0];
+    assert.equal(delivery.method, "POST"); assert.equal(delivery.url, "/webhook/lead");
+    assert.equal(delivery.headers["x-lelang-event"], "lead.created");
+    assert.equal(delivery.headers["x-lelang-delivery-id"], queued.rows[0].id);
+    assert.equal(delivery.headers["x-lelang-signature"], signWebhookRequest(hookSecret, delivery.headers["x-lelang-timestamp"], delivery.body), "Tanda tangan HMAC cocok saat penerima menghitung ulang");
+    const sent = JSON.parse(delivery.body);
+    assert.equal(sent.event, "lead.created"); assert.equal(sent.test, false); assert.equal(sent.deliveryId, queued.rows[0].id);
+    assert.equal(sent.lead.name, "Pengunjung webhook");
+    assert.equal(sent.lead.email, "webhook@example.invalid", "Payload membawa kontak asli, bukan versi tersamar");
+    assert.equal(sent.lead.phone, "081200000000");
+    assert.equal(sent.property.sku, created.property.sku);
+    assert.equal(sent.property.url, "http://localhost:3003/properti/" + created.property.slug);
+    assert.equal((await client.query("select status from app.outbox_events where id=$1", [queued.rows[0].id])).rows[0].status, "processed");
+    await client.query("update app.webhook_endpoints set enabled=false where name='lead_notification'");
+    await createLead({ propertyId, name: "Pengunjung tanpa webhook", email: "no-webhook@example.invalid", consent: true });
+    assert.equal((await client.query("select count(*)::int as n from app.outbox_events where type='webhook.lead_created'")).rows[0].n, 1, "Webhook nonaktif tidak mengantre event baru");
     const published = await client.query("select version from app.properties where id=$1", [propertyId]);
     await assert.rejects(markListingSold({ ...actor, roles: ["editor"] }, propertyId, { version: published.rows[0].version, reason: "Penjualan selesai" }), (error) => error instanceof AuthorizationError);
     const sold = await markListingSold(actor, propertyId, { version: published.rows[0].version, reason: "Penjualan selesai" });
@@ -136,8 +178,10 @@ async function main() {
     assert.deepEqual(adminAudit.rows.map((row) => row.action).sort(), ["admin.account.disabled", "admin.account.enabled", "admin.role.granted", "admin.role.revoked"]);
     await client.query("delete from app.audit_logs where entity_id=$1", [targetId]);
     await client.query("delete from app.profiles where id=$1", [targetId]);
-    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, SMTP retry, dead-letter, checksum rejection, admin role/status management + SELF_LOCKOUT.");
+    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, SMTP retry, dead-letter, checksum rejection, admin role/status management + SELF_LOCKOUT, webhook lead terkirim + tanda tangan HMAC + gate enabled.");
   } finally {
+    if (hookServer) await new Promise((resolve) => hookServer.close(resolve));
+    await client.query("delete from app.webhook_endpoints where name='lead_notification'").catch(() => undefined);
     if (propertyId) { await client.query("delete from app.outbox_events where payload->>'propertyId'=$1", [propertyId]); await client.query("delete from app.audit_logs where entity_id=$1 or actor_id=$2", [propertyId, profileId]); await client.query("delete from app.leads where property_id=$1", [propertyId]); await client.query("delete from app.properties where id=$1", [propertyId]); }
     if (storage.startsWith(path.join(os.tmpdir(), "lelang-backend-test-"))) await rm(storage, { recursive: true, force: true });
     await client.query("delete from app.profiles where id=$1", [profileId]).catch(() => undefined); await client.end().catch(() => undefined);

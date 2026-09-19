@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { getDatabasePool } from "@/server/db/client";
 import { processMedia } from "./process-media";
 import { discard, discardPublic } from "@/server/storage/local";
+import { deliverLeadWebhook } from "@/server/webhooks/deliver";
 
 const roleLabels: Record<string, string> = { admin: "Administrator", editor: "Editor", owner: "Pemilik produk", agent: "Agent", buyer: "Pembeli" };
 
@@ -44,7 +45,8 @@ export async function deliverOutbox(limit = 25) {
           const transport = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_PORT === "465", requireTLS: process.env.NODE_ENV === "production", auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD } : undefined, connectionTimeout: 3000, greetingTimeout: 3000, socketTimeout: 3000 });
           try { await transport.sendMail({ from: process.env.EMAIL_FROM, to: process.env.NOTIFICATION_EMAIL, messageId: "<" + event.id + "@lelang.local>", subject: event.type === "lead.created" ? "Lead properti baru" : "Review properti diperbarui", text: "Buka dashboard aplikasi untuk menindaklanjuti. Referensi: " + String(event.payload.leadId || event.payload.propertyId) }); }
           finally { transport.close(); }
-        } else if (event.type === "access_request.reviewed") await notifyAccessRequest(event);
+        } else if (event.type === "webhook.lead_created") await deliverLeadWebhook(pool, event);
+        else if (event.type === "access_request.reviewed") await notifyAccessRequest(event);
         else throw new Error("Unknown event.");
         await client.query("update app.outbox_events set status='processed',processed_at=now(),attempts=attempts+1,last_error=null where id=$1", [event.id]);
         processed++;

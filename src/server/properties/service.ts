@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDatabase } from "@/server/db/client";
-import { properties, propertyRevisions, propertyMedia, auditLogs, outboxEvents, leads, profiles } from "@/server/db/schema";
+import { properties, propertyRevisions, propertyMedia, auditLogs, outboxEvents, leads, profiles, webhookEndpoints } from "@/server/db/schema";
 import { requireRole, type Actor } from "@/server/auth/actor";
 import { AuthHttpError } from "@/server/auth/http";
 import { discard, discardPublic } from "@/server/storage/local";
@@ -185,6 +185,10 @@ export async function createLead(input: z.infer<typeof leadInput>, buyerId?: str
     const [lead] = await transaction.insert(leads).values({ propertyId: input.propertyId, name: input.name, email: input.email, buyerId: buyerId || null, phone: input.phone, message: input.message, consentAt: new Date() }).returning({ id: leads.id });
     await transaction.insert(auditLogs).values({ action: "lead.created", entityType: "lead", entityId: lead.id });
     await transaction.insert(outboxEvents).values({ type: "lead.created", payload: { leadId: lead.id, propertyId: input.propertyId } });
+    // Hanya diantre bila webhook tersimpan & enabled: yang belum memakai fitur ini tidak mendapat
+    // event yang pasti dead-letter. Payload sengaja minimal; detail lengkap diambil worker saat kirim.
+    const [hook] = await transaction.select({ id: webhookEndpoints.id }).from(webhookEndpoints).where(and(eq(webhookEndpoints.name, "lead_notification"), eq(webhookEndpoints.enabled, true))).limit(1);
+    if (hook) await transaction.insert(outboxEvents).values({ type: "webhook.lead_created", payload: { leadId: lead.id, propertyId: input.propertyId } });
     return lead;
   });
 }
