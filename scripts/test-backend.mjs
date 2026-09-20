@@ -42,6 +42,9 @@ async function main() {
     await assert.rejects(createListing(actor, { ...listing, sku: created.property.sku }), (error) => error instanceof AuthHttpError && error.code === "SKU_CONFLICT");
     await assert.rejects(editListing(actor, propertyId, 99, listing), (error) => error instanceof AuthHttpError && error.code === "VERSION_CONFLICT");
     const edited = await editListing(actor, propertyId, 1, { ...listing, title: "Rumah pengujian backend revisi" }); assert.equal(edited.version, 2);
+    // Admin boleh approve langsung dari revisi draft (lewati antrean review); yang menahan kini hanya gerbang foto.
+    await assert.rejects(transitionListing(actor, propertyId, { version: 2, action: "approve" }), (error) => error instanceof AuthHttpError && error.code === "MEDIA_NOT_READY", "Bypass review admin lolos gerbang transisi, tetap tertahan MEDIA_NOT_READY");
+    await assert.rejects(transitionListing({ ...actor, roles: ["editor"] }, propertyId, { version: 2, action: "approve" }), (error) => error instanceof AuthorizationError, "Bypass tetap admin-only");
     const submitted = await transitionListing(actor, propertyId, { version: 2, action: "submit" }); assert.equal(submitted.version, 3);
     await assert.rejects(transitionListing(actor, propertyId, { version: 3, action: "approve" }), (error) => error instanceof AuthHttpError && error.code === "MEDIA_NOT_READY");
     await assert.rejects(createLead({ propertyId, name: "Pengunjung", email: "visitor@example.invalid", consent: true }), (error) => error instanceof AuthHttpError && error.code === "NOT_FOUND");

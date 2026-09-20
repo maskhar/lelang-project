@@ -99,7 +99,9 @@ export async function transitionListing(actor: Actor, id: string, input: z.infer
     const allowed = input.action === "submit" ? ["draft", "revision_required"] : input.action === "archive" ? ["draft", "pending_review", "revision_required", "published", "paused", "rejected"] : input.action === "unarchive" ? ["archived"] : ["pending_review"];
     const [revision] = await transaction.select().from(propertyRevisions).where(eq(propertyRevisions.propertyId, id)).orderBy(desc(propertyRevisions.revisionNumber)).limit(1);
     if (!revision) throw missing();
-    const reviewAllowed = input.action === "submit" ? ["draft", "revision_required"] : ["pending"];
+    // Admin boleh langsung publikasikan tanpa submit dulu (skip antrean review) — approve tetap admin-only lewat
+    // requireRole di atas, jadi longgarkan hanya status revisi asal yang diterima, bukan siapa yang boleh memicunya.
+    const reviewAllowed = input.action === "submit" ? ["draft", "revision_required"] : input.action === "approve" ? ["pending", "draft", "revision_required"] : ["pending"];
     if (["archive", "unarchive"].includes(input.action) ? !allowed.includes(property.publicationStatus) : property.publicationStatus === "archived" || !reviewAllowed.includes(revision.status)) throw new AuthHttpError(409, "INVALID_TRANSITION", "Transisi tidak valid.");
     if (input.action === "approve") {
       const media = await transaction.select().from(propertyMedia).where(eq(propertyMedia.revisionId, revision.id));

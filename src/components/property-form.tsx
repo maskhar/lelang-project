@@ -1,5 +1,5 @@
 "use client";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { propertyTypes } from "@/lib/properties";
 import { indonesianCities, cityProvinceByName } from "@/lib/indonesia-cities";
 import { amenityCatalog, amenityCategories } from "@/lib/amenities";
@@ -18,18 +18,23 @@ export function localDateTime(value: string | null) {
 
 const coordinatePattern = /^(-?(?:\d+(?:\.\d+)?|\.\d+))\s*,\s*(-?(?:\d+(?:\.\d+)?|\.\d+))$/;
 
-export default function PropertyForm({ initial, onSave, disabled = false, statusActions }: { initial?: ListingFormValue; onSave: (value: ListingFormValue) => Promise<void>; disabled?: boolean; statusActions?: ReactNode }) {
+export default function PropertyForm({ initial, onSave, disabled = false, canPublish = false, mediaReady = false, statusActions }: { initial?: ListingFormValue; onSave: (value: ListingFormValue, publish: boolean) => Promise<void>; disabled?: boolean; canPublish?: boolean; mediaReady?: boolean; statusActions?: ReactNode }) {
   const [city, setCity] = useState(initial?.city || "");
   const [mode, setMode] = useState(initial?.saleMode || "direct_sale");
   const [coordinates, setCoordinates] = useState(initial?.latitude != null && initial?.longitude != null ? `${initial.latitude}, ${initial.longitude}` : "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const publishIntent = useRef(false);
   const province = cityProvinceByName.get(city.trim().toLocaleLowerCase("id-ID")) || "";
   const coordinateMatch = coordinatePattern.exec(coordinates.trim());
   const mapQuery = coordinateMatch ? `${coordinateMatch[1]},${coordinateMatch[2]}` : "";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (saving || disabled) return;
+    event.preventDefault();
+    // Ref, bukan state: tombol publikasi harus menandai niatnya di onClick yang jalan sebelum submit ini,
+    // dan submit lewat tombol draft atau tombol Enter tidak boleh ikut mempublikasikan.
+    const publish = publishIntent.current; publishIntent.current = false;
+    if (saving || disabled) return;
     const fields = new FormData(event.currentTarget);
     setSaving(true); setError(null);
     try {
@@ -40,7 +45,7 @@ export default function PropertyForm({ initial, onSave, disabled = false, status
       const latitude = parsedCoordinates ? Number(parsedCoordinates[1]) : null;
       const longitude = parsedCoordinates ? Number(parsedCoordinates[2]) : null;
       const value = listingInput.parse({ sku: rawSku || undefined, title: fields.get("title"), description: fields.get("description"), type: fields.get("type"), city: city.trim(), province, address: String(fields.get("address") || "").trim(), latitude, longitude, saleMode: mode, askingPrice: Number(fields.get("askingPrice")), landAreaM2: Number(fields.get("landAreaM2")), buildingAreaM2: Number(fields.get("buildingAreaM2")), bedroomCount: Number(fields.get("bedroomCount")), auctionStartsAt: mode === "auction" ? new Date(String(fields.get("auctionStartsAt"))).toISOString() : null, auctionEndsAt: mode === "auction" ? new Date(String(fields.get("auctionEndsAt"))).toISOString() : null, amenities: fields.getAll("amenities").map(String) });
-      await onSave(value);
+      await onSave(value, publish);
     } catch (reason) { setError(reason); }
     finally { setSaving(false); }
   }
@@ -69,5 +74,11 @@ export default function PropertyForm({ initial, onSave, disabled = false, status
       <p className={styles.fieldHint}>Centang yang benar-benar tersedia di sekitar aset. Item yang tidak dicentang tidak ditampilkan di halaman publik.</p>
       {amenityCategories.map((category) => <fieldset key={category}><legend>{category}</legend>{amenityCatalog.filter((item) => item.category === category).map((item) => <label key={item.key}><input type="checkbox" name="amenities" value={item.key} defaultChecked={initial?.amenities?.includes(item.key)} />{item.label}</label>)}</fieldset>)}
     </div>
-  </fieldset><FormError error={error} /><button className="button dark" disabled={saving || disabled}>{saving ? "Menyimpan…" : "Simpan draft"}</button>{statusActions && <aside className={styles.statusEditor}><strong>Status &amp; review</strong>{statusActions}</aside>}</form>;
+  </fieldset><FormError error={error} /><div className={styles.saveRow}>
+    <button className="button dark" disabled={saving || disabled}>{saving ? "Menyimpan…" : "Simpan draft"}</button>
+    {/* Publikasi langsung menyimpan revisi lalu approve dalam satu klik; sampul siap tetap wajib, jadi tombol
+        dikunci sampai foto terverifikasi supaya admin tidak menabrak MEDIA_NOT_READY setelah simpan berhasil. */}
+    {canPublish && <button type="submit" className="button gold" disabled={saving || disabled || !mediaReady} title={mediaReady ? undefined : "Sampul siap wajib tersedia; tunggu verifikasi foto."} onClick={() => { publishIntent.current = true; }}>{saving ? "Menyimpan…" : "Simpan & publikasikan"}</button>}
+    {canPublish && !mediaReady && <span className={styles.fieldHint}>Publikasi langsung aktif setelah foto sampul berstatus &quot;Siap&quot;.</span>}
+  </div>{statusActions &&<aside className={styles.statusEditor}><strong>Status &amp; review</strong>{statusActions}</aside>}</form>;
 }

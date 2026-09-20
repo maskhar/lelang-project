@@ -10,6 +10,8 @@
    Di layar sempit ditumpuk satu kolom penuh lebar supaya tetap gampang dan akurat disentuh. */
 @media(max-width:520px){.statusEditor>div>div{display:grid;grid-template-columns:1fr}.statusEditor button{min-height:44px;font-size:13px}}.mapPreview{min-height:260px;overflow:hidden;border:1px solid var(--line);border-radius:8px;background:var(--paper)}.mapPreview iframe{display:block;width:100%;height:260px;border:0}.mapPreview p{margin:0;padding:24px;color:var(--muted);font-size:13px}@media(max-width:700px){.mapPreview,.mapPreview iframe{min-height:220px;height:220px}}
 .fieldHint{margin:0;font-size:12px;color:var(--muted)}
+.saveRow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+@media(max-width:520px){.saveRow{flex-direction:column;align-items:stretch}.saveRow .button{width:100%}}
 /* Harus setelah .form fieldset: fieldset ini bersarang di dalam form editor, jadi ikut tersapu aturan
    grid 2 kolom + margin 20px milik form utama. Specificity-nya sama, jadi urutan file yang menentukan. */
 .propertyAvailability fieldset{display:flex;flex-wrap:wrap;align-items:end;gap:10px 14px;margin:0;padding:0;border:0;min-width:0}.propertyAvailability legend{padding:0;font-size:13px;font-weight:600;color:var(--ink)}.propertyAvailability p{flex:1 0 100%;margin:0}.propertyAvailability label{flex:1 1 240px;min-width:0}.propertyAvailability button{flex:0 0 auto;min-height:42px}/* flex-basis ikut berpindah ke sumbu tinggi saat arah jadi column, jadi basis label dinetralkan di sini. */

@@ -35,10 +35,18 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   const revision = detail?.revisions[0];
   const locked = !revision || revision.status === "pending" || detail?.property.publicationStatus === "archived";
   const mediaLocked = locked || !["draft", "revision_required"].includes(revision?.status || "");
-  async function save(value: ListingFormValue) {
+  async function save(value: ListingFormValue, publish: boolean) {
     if (!detail) return;
     setBusy(true); setError(null);
-    try { await apiRequest("/api/v1/properties/" + id, { method: "PATCH", headers: { "Content-Type": "application/json", ...await csrfHeaders() }, body: JSON.stringify({ version: detail.property.version, listing: value }) }); await load(); setFormKey((current) => current + 1); }
+    try {
+      const result = await apiRequest<{ version: number }>("/api/v1/properties/" + id, { method: "PATCH", headers: { "Content-Type": "application/json", ...await csrfHeaders() }, body: JSON.stringify({ version: detail.property.version, listing: value }) });
+      // Admin bisa publikasi langsung: kirim approve pakai versi baru dari PATCH tanpa muat ulang dulu.
+      if (publish) await apiRequest("/api/v1/properties/" + id, { method: "POST", headers: { "Content-Type": "application/json", ...await csrfHeaders() }, body: JSON.stringify({ version: result.version, action: "approve" }) });
+      await load(); setFormKey((current) => current + 1);
+    }
+    // Kalau approve gagal (mis. MEDIA_NOT_READY) setelah PATCH berhasil, versi di state jadi basi satu langkah;
+    // muat ulang di sini supaya klik berikutnya (mis. tombol Publikasikan) tidak menabrak VERSION_CONFLICT.
+    catch (reason) { await load().catch(() => undefined); throw reason; }
     finally { setBusy(false); }
   }
   async function upload(selected: File[]) {
@@ -63,7 +71,9 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   function handleMediaDrop(event: DragEvent<HTMLElement>, targetId: string) { event.preventDefault(); const sourceId = draggedMediaId; setDraggedMediaId(null); if (!sourceId || sourceId === targetId || mediaLocked || busy) return; const ids = media.map((photo) => photo.id); const sourceIndex = ids.indexOf(sourceId); const targetIndex = ids.indexOf(targetId); if (sourceIndex < 0 || targetIndex < 0) return; ids.splice(sourceIndex, 1); ids.splice(targetIndex, 0, sourceId); void order(ids); }
   const media = detail?.media.filter((item) => item.status !== "deleted").sort((left, right) => left.sortOrder - right.sortOrder) || [];
   const initial = revision?.listingSnapshot ? { ...revision.listingSnapshot, address: revision.address ?? revision.listingSnapshot.address ?? "", latitude: revision.listingSnapshot.latitude ?? null, longitude: revision.listingSnapshot.longitude ?? null, sku: detail?.property.sku, title: revision.title, description: revision.description, landAreaM2: revision.landAreaM2, buildingAreaM2: revision.buildingAreaM2, bedroomCount: revision.bedroomCount, amenities: orderAmenities(revision.amenities ?? []), auctionStartsAt: revision.auctionStartsAt, auctionEndsAt: revision.auctionEndsAt } : undefined;
-  const mediaLabels: Record<string, string> = { pending: "Menunggu verifikasi", ready: "Siap", rejected: "Ditolak" };
+  // Cermin gerbang MEDIA_NOT_READY di server, dipakai hanya untuk mengunci tombol publikasi langsung.
+  const mediaReady = media.some((item) => item.status === "ready" && item.isCover) && !media.some((item) => item.status === "pending");
+  const mediaLabels: Record<string, string> ={ pending: "Menunggu verifikasi", ready: "Siap", rejected: "Ditolak" };
   return (
     <>
       <div className={styles.heading}>
@@ -98,7 +108,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
             {detail.property.publishedRevisionId && revision.id !== detail.property.publishedRevisionId && (
               <p role="status" className={styles.notice}>Revisi ini belum tayang publik — situs masih menampilkan versi lama. Klik &quot;Kirim review&quot; agar perubahan tampil.</p>
             )}
-            <PropertyForm key={id + ":" + formKey} initial={initial} onSave={save} disabled={locked || busy} statusActions={<><ListingReview id={id} version={detail.property.version} isAdmin={isAdmin} publicationStatus={detail.property.publicationStatus} onChanged={async () => { await load(); setFormKey((current) => current + 1); }} />{detail.permissions.canMarkSold && detail.property.publicationStatus === "published" && <PropertyAvailability id={id} version={detail.property.version} availabilityStatus={detail.property.availabilityStatus} onChanged={async () => { await load(); }} />}</>} />
+            <PropertyForm key={id + ":" + formKey} initial={initial} onSave={save} disabled={locked || busy} canPublish={isAdmin} mediaReady={mediaReady} statusActions={<><ListingReview id={id} version={detail.property.version} isAdmin={isAdmin} publicationStatus={detail.property.publicationStatus} onChanged={async () => { await load(); setFormKey((current) => current + 1); }} />{detail.permissions.canMarkSold && detail.property.publicationStatus === "published" && <PropertyAvailability id={id} version={detail.property.version} availabilityStatus={detail.property.availabilityStatus} onChanged={async () => { await load(); }} />}</>} />
           </section>
 
 
