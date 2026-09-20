@@ -46,7 +46,9 @@ async function main() {
     await assert.rejects(transitionListing(actor, propertyId, { version: 3, action: "approve" }), (error) => error instanceof AuthHttpError && error.code === "MEDIA_NOT_READY");
     await assert.rejects(createLead({ propertyId, name: "Pengunjung", email: "visitor@example.invalid", consent: true }), (error) => error instanceof AuthHttpError && error.code === "NOT_FOUND");
     const audit = await client.query("select action from app.audit_logs where entity_id=$1", [propertyId]); assert.deepEqual(audit.rows.map((row) => row.action).sort(), ["property.created", "property.edited", "property.submit"]);
-    const outbox = await client.query("select type from app.outbox_events where payload->>'propertyId'=$1", [propertyId]); assert.equal(outbox.rows.length, 1);
+    // Notifikasi staf hanya diantre saat webhook 'staff_notification' ada + enabled; di titik ini belum
+    // dikonfigurasi, jadi submit tidak boleh meninggalkan event yang pasti berakhir dead-letter.
+    const outbox = await client.query("select type from app.outbox_events where payload->>'propertyId'=$1", [propertyId]); assert.equal(outbox.rows.length, 0);
     const bytes = await sharp({ create: { width: 10, height: 10, channels: 3, background: "red" } }).png().toBuffer();
     const stored = await saveQuarantine(new File([bytes], "test.png", { type: "image/png" }));
     const mediaId = randomUUID();
@@ -79,8 +81,8 @@ async function main() {
     const webhookLead = await createLead({ propertyId, name: "Pengunjung webhook", email: "webhook@example.invalid", phone: "081200000000", message: "Minat lewat webhook", consent: true });
     const queued = await client.query("select id,payload from app.outbox_events where type='webhook.lead_created'");
     assert.equal(queued.rows.length, 1); assert.equal(queued.rows[0].payload.leadId, webhookLead.id);
-    // Event email lain ditahan sementara: assertion retry/dead-letter lead.created di bawah menghitung
-    // attempts secara persis, jadi percobaan SMTP tidak boleh ikut bertambah di sini.
+    // Event lain ditahan sementara: assertion di bawah menghitung attempts secara persis, jadi hanya
+    // pengiriman webhook lead yang boleh diproses pada batch ini.
     await client.query("update app.outbox_events set available_at=now() + interval '1 hour' where type<>'webhook.lead_created' and status='pending'");
     assert.equal(await deliverOutbox(), 1);
     await client.query("update app.outbox_events set available_at=now() where status='pending'");
@@ -127,14 +129,23 @@ async function main() {
     const concurrent = await Promise.allSettled([editListing(actor, propertyId, revised.version, listing), editListing(actor, propertyId, revised.version, listing)]);
     assert.equal(concurrent.filter((result) => result.status === "fulfilled").length, 1);
     assert.equal(concurrent.filter((result) => result.status === "rejected" && result.reason.code === "VERSION_CONFLICT").length, 1);
-    delete process.env.SMTP_HOST;
+    // Backoff + dead-letter, satu-satunya di repo ini: dipicu kegagalan webhook deterministik (port
+    // tertutup, bukan bergantung SMTP yang sudah dihapus total dari worker).
+    await client.query("insert into app.webhook_endpoints(name,url,secret_ciphertext,enabled) values('staff_notification',$1,$2,true)", ["http://127.0.0.1:1/closed", encryptWebhookSecret(generateWebhookSecret())]);
+    const beforeSold = await client.query("select version from app.properties where id=$1", [propertyId]);
+    await markListingSold(actor, propertyId, { version: beforeSold.rows[0].version, reason: "Uji retry webhook staf" });
     await deliverOutbox();
-    const retry = await client.query("select status,attempts from app.outbox_events where type='lead.created'");
+    const retry = await client.query("select status,attempts from app.outbox_events where type='webhook.notification'");
     assert.equal(retry.rows[0].status, "pending"); assert.equal(retry.rows[0].attempts, 1);
-    await client.query("update app.outbox_events set attempts=7, available_at=now() where type='lead.created'");
+    await client.query("update app.outbox_events set attempts=7, available_at=now() where type='webhook.notification'");
     await deliverOutbox();
-    const dead = await client.query("select status,attempts from app.outbox_events where type='lead.created'");
+    const dead = await client.query("select status,attempts from app.outbox_events where type='webhook.notification'");
     assert.equal(dead.rows[0].status, "dead_letter"); assert.equal(dead.rows[0].attempts, 8);
+    const afterSold = await client.query("select version,availability_status from app.properties where id=$1", [propertyId]);
+    assert.equal(afterSold.rows[0].availability_status, "sold");
+    await markListingAvailable(actor, propertyId, { version: afterSold.rows[0].version, reason: "Kembalikan setelah uji retry webhook" });
+    // Gerbang nonaktif dipasang lagi supaya aksi uji berikutnya tidak menumpuk event ke endpoint mati.
+    await client.query("update app.webhook_endpoints set enabled=false where name='staff_notification'");
     const tamperedId = randomUUID();
     const tampered = await saveQuarantine(new File([bytes], "tampered.png", { type: "image/png" }));
     await client.query("insert into app.property_media(id,revision_id,bucket,object_path,content_type,size_bytes,checksum_sha256,is_cover) values($1,$2,'quarantine',$3,$4,$5,$6,false)", [tamperedId, edited.revision.id, tampered.objectPath, tampered.contentType, tampered.sizeBytes, "0".repeat(64)]);
@@ -195,10 +206,10 @@ async function main() {
     assert.deepEqual(adminAudit.rows.map((row) => row.action).sort(), ["admin.account.disabled", "admin.account.enabled", "admin.role.granted", "admin.role.revoked"]);
     await client.query("delete from app.audit_logs where entity_id=$1", [targetId]);
     await client.query("delete from app.profiles where id=$1", [targetId]);
-    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, salin foto ready antar-revisi, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, SMTP retry, dead-letter, checksum rejection, admin role/status management + SELF_LOCKOUT, webhook lead terkirim + tanda tangan HMAC + gate enabled, sold/available dua arah.");
+    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, salin foto ready antar-revisi, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, webhook retry, dead-letter, checksum rejection, admin role/status management + SELF_LOCKOUT, webhook lead terkirim + tanda tangan HMAC + gate enabled, sold/available dua arah.");
   } finally {
     if (hookServer) await new Promise((resolve) => hookServer.close(resolve));
-    await client.query("delete from app.webhook_endpoints where name='lead_notification'").catch(() => undefined);
+    await client.query("delete from app.webhook_endpoints where name in ('lead_notification','staff_notification')").catch(() => undefined);
     if (propertyId) { await client.query("delete from app.outbox_events where payload->>'propertyId'=$1", [propertyId]); await client.query("delete from app.audit_logs where entity_id=$1 or actor_id=$2", [propertyId, profileId]); await client.query("delete from app.leads where property_id=$1", [propertyId]); await client.query("delete from app.properties where id=$1", [propertyId]); }
     if (storage.startsWith(path.join(os.tmpdir(), "lelang-backend-test-"))) await rm(storage, { recursive: true, force: true });
     await client.query("delete from app.profiles where id=$1", [profileId]).catch(() => undefined); await client.end().catch(() => undefined);
