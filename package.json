@@ -43,7 +43,6 @@
     "drizzle-orm": "^0.45.2",
     "google-auth-library": "^11.0.2",
     "next": "16.3.5",
-    "nodemailer": "^10.0.10",
     "pg": "^8.23.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -53,7 +52,6 @@
   },
   "devDependencies": {
     "@types/node": "^22",
-    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",

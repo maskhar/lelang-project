@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq, isNull } from "drizzle-orm";
 import { getDatabase } from "@/server/db/client";
 import { auditLogs, profiles, userRoles, userSessions } from "@/server/db/schema";
+import { enqueueStaffNotification } from "@/server/webhooks/enqueue";
 import { requireRole, type Actor } from "./actor";
 import { AuthHttpError } from "./http";
 
@@ -30,7 +31,7 @@ export async function setRole(actor: Actor, targetId: string, role: ManageableRo
   assertNoSelfLockout(actor, targetId, { role, grant });
   const database = getDatabase();
   return database.transaction(async (transaction) => {
-    const [target] = await transaction.select({ id: profiles.id }).from(profiles).where(eq(profiles.id, targetId)).for("update");
+    const [target] = await transaction.select({ id: profiles.id, name: profiles.name }).from(profiles).where(eq(profiles.id, targetId)).for("update");
     if (!target) throw notFound();
     if (grant) {
       const [inserted] = await transaction.insert(userRoles).values({ userId: targetId, role }).onConflictDoNothing().returning({ role: userRoles.role });
@@ -42,6 +43,7 @@ export async function setRole(actor: Actor, targetId: string, role: ManageableRo
     // Sesi target dicabut agar Actor berikutnya dibangun dari role terbaru (meniru CLI user:role).
     await revokeSessions(transaction, targetId);
     await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: grant ? "admin.role.granted" : "admin.role.revoked", entityType: "profile", entityId: targetId, metadata: { role } });
+    await enqueueStaffNotification(transaction, { event: "admin.role", actorId: actor.profileId, actorName: actor.name, occurredAt: new Date().toISOString(), targetId, targetName: target.name, role, granted: grant });
     return { id: targetId, role, granted: grant };
   });
 }

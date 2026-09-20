@@ -10,6 +10,8 @@ import { copyPublic, discard, discardPublic } from "@/server/storage/local";
 import { mediaObjectPath } from "@/server/media/object-path";
 import { formatRupiah } from "@/lib/currency";
 import { amenityByKey } from "@/lib/amenities";
+import { propertyActionLabels } from "@/lib/property-actions";
+import { enqueueStaffNotification } from "@/server/webhooks/enqueue";
 import { listingInput, transitionInput, leadInput, identifier } from "./validation";
 import { denied, isAgentOnly, isBuyerOnly, isOwnerOnly, isStaff } from "./policy";
 
@@ -112,7 +114,7 @@ export async function transitionListing(actor: Actor, id: string, input: z.infer
     await transaction.update(propertyRevisions).set({ status: review[input.action], reviewedBy: input.action === "submit" ? null : actor.profileId, reviewReason: input.reason ?? null, updatedAt: new Date() }).where(eq(propertyRevisions.id, revision.id));
     const [updated] = await transaction.update(properties).set({ publicationStatus: property.publishedRevisionId && !["approve", "archive", "unarchive"].includes(input.action) ? property.publicationStatus : status[input.action], version: property.version + 1, updatedAt: new Date(), ...(input.action === "approve" ? { publishedRevisionId: revision.id, publishedAt: new Date(), saleMode: details!.saleMode, type: details!.type, askingPrice: details!.askingPrice, provinceCode: regionKey(details!.province), cityCode: regionKey(details!.city) } : {}) }).where(eq(properties.id, id)).returning();
     await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property." + input.action, entityType: "property", entityId: id, metadata: { reason: input.reason ?? null, revisionId: revision.id } });
-    await transaction.insert(outboxEvents).values({ type: "property.review", payload: { propertyId: id, action: input.action } });
+    await enqueueStaffNotification(transaction, { event: "property.review", action: input.action, actorId: actor.profileId, actorName: actor.name, occurredAt: new Date().toISOString(), reason: input.reason ?? null, propertyId: id });
     return updated;
   });
 }
@@ -135,6 +137,7 @@ export async function markListingSold(actor: Actor, id: string, value: unknown) 
     if (property.publicationStatus !== "published" || property.availabilityStatus !== "available") throw new AuthHttpError(409, "INVALID_TRANSITION", "Hanya properti terpublikasi dan tersedia dapat ditandai terjual.");
     const [updated] = await transaction.update(properties).set({ availabilityStatus: "sold", version: property.version + 1, updatedAt: new Date() }).where(eq(properties.id, id)).returning();
     await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property.sold", entityType: "property", entityId: id, metadata: { reason: input.reason } });
+    await enqueueStaffNotification(transaction, { event: "property.sold", actorId: actor.profileId, actorName: actor.name, occurredAt: new Date().toISOString(), reason: input.reason, propertyId: id });
     return updated;
   });
 }
@@ -179,9 +182,6 @@ export async function staffListings(actor: Actor, filters: { status?: string; q?
     .where(and(sql`${propertyRevisions.revisionNumber} = (select max(latest.revision_number) from app.property_revisions latest where latest.property_id = ${properties.id})`, filters.status ? eq(properties.publicationStatus, filters.status as any) : undefined, filters.q ? sql`${propertyRevisions.title} ilike ${"%" + filters.q + "%"}` : undefined, isStaff(actor) ? undefined : eq(properties.ownerId, actor.profileId)))
     .orderBy(desc(properties.updatedAt), asc(properties.id)).limit(100);
 }
-
-// Label ramah untuk aksi yang tercatat di audit_logs entityType="property" — dipakai popup riwayat aktivitas.
-const propertyActionLabels: Record<string, string> = { "property.created": "Properti dibuat", "property.edited": "Revisi disimpan", "property.submit": "Dikirim untuk review", "property.approve": "Dipublikasikan", "property.revision": "Diminta revisi", "property.reject": "Ditolak", "property.archive": "Diarsipkan", "property.unarchive": "Dipulihkan dari arsip", "property.sold": "Ditandai terjual", "property.available": "Dikembalikan tersedia", "property.deleted": "Dihapus permanen" };
 
 // Bandingkan dua revisi field-per-field untuk popup audit. `before` kosong (revisi pertama) membuat semua
 // field tampil sebagai "(baru)" alih-alih dibandingkan dengan string kosong.
@@ -235,7 +235,10 @@ export async function bulkArchiveListings(actor: Actor, ids: string[]) {
   const validIds = z.array(identifier).min(1).max(100).parse(ids);
   return getDatabase().transaction(async (transaction) => {
     const rows = await transaction.update(properties).set({ publicationStatus: "archived", updatedAt: new Date() }).where(inArray(properties.id, validIds)).returning({ id: properties.id });
-    if (rows.length) await transaction.insert(auditLogs).values(rows.map((row) => ({ actorId: actor.profileId, action: "property.archive", entityType: "property", entityId: row.id, metadata: { bulk: true } })));
+    if (rows.length) {
+      await transaction.insert(auditLogs).values(rows.map((row) => ({ actorId: actor.profileId, action: "property.archive", entityType: "property", entityId: row.id, metadata: { bulk: true } })));
+      await enqueueStaffNotification(transaction, { event: "property.archived", actorId: actor.profileId, actorName: actor.name, occurredAt: new Date().toISOString(), propertyIds: rows.map((row) => row.id) });
+    }
     return rows;
   });
 }
@@ -258,8 +261,17 @@ export async function deleteListings(actor: Actor, value: unknown) {
       throw new AuthHttpError(409, "HAS_LEADS", "Properti " + names + " memiliki lead. Arsipkan saja agar riwayat lead tetap utuh.");
     }
     const media = await transaction.select({ bucket: propertyMedia.bucket, objectPath: propertyMedia.objectPath }).from(propertyMedia).innerJoin(propertyRevisions, eq(propertyRevisions.id, propertyMedia.revisionId)).where(inArray(propertyRevisions.propertyId, ids));
+    // Judul dibaca SEBELUM delete karena revisi ikut hilang lewat FK cascade; notifikasi webhook
+    // memakai snapshot ini, bukan baca ulang seperti event properti lain.
+    const revisions = await transaction.select({ propertyId: propertyRevisions.propertyId, title: propertyRevisions.title, revisionNumber: propertyRevisions.revisionNumber }).from(propertyRevisions).where(inArray(propertyRevisions.propertyId, ids));
+    const latestTitle = new Map<string, { title: string; revisionNumber: number }>();
+    for (const row of revisions) {
+      const current = latestTitle.get(row.propertyId);
+      if (!current || row.revisionNumber > current.revisionNumber) latestTitle.set(row.propertyId, { title: row.title, revisionNumber: row.revisionNumber });
+    }
     await transaction.delete(properties).where(inArray(properties.id, ids));
     await transaction.insert(auditLogs).values(rows.map((row) => ({ actorId: actor.profileId, action: "property.deleted", entityType: "property", entityId: row.id, metadata: { sku: row.sku, mediaCount: media.length } })));
+    await enqueueStaffNotification(transaction, { event: "property.deleted", actorId: actor.profileId, actorName: actor.name, occurredAt: new Date().toISOString(), entities: rows.map((row) => ({ sku: row.sku, title: latestTitle.get(row.id)?.title ?? "" })) });
     return media;
   });
   for (const file of files) await (file.bucket === "public" ? discardPublic(file.objectPath) : discard(file.objectPath)).catch(() => undefined);
@@ -273,7 +285,7 @@ export async function createLead(input: z.infer<typeof leadInput>, buyerId?: str
     if (!property) throw missing();
     const [lead] = await transaction.insert(leads).values({ propertyId: input.propertyId, name: input.name, email: input.email, buyerId: buyerId || null, phone: input.phone, message: input.message, consentAt: new Date() }).returning({ id: leads.id });
     await transaction.insert(auditLogs).values({ action: "lead.created", entityType: "lead", entityId: lead.id });
-    await transaction.insert(outboxEvents).values({ type: "lead.created", payload: { leadId: lead.id, propertyId: input.propertyId } });
+    await enqueueStaffNotification(transaction, { event: "lead.created", occurredAt: new Date().toISOString(), leadId: lead.id, propertyId: input.propertyId });
     // Hanya diantre bila webhook tersimpan & enabled: yang belum memakai fitur ini tidak mendapat
     // event yang pasti dead-letter. Payload sengaja minimal; detail lengkap diambil worker saat kirim.
     const [hook] = await transaction.select({ id: webhookEndpoints.id }).from(webhookEndpoints).where(and(eq(webhookEndpoints.name, "lead_notification"), eq(webhookEndpoints.enabled, true))).limit(1);
