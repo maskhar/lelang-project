@@ -950,6 +950,9 @@ footer > small {
   .chips button {
     padding: 8px 16px;
   }
+  .result-count {
+    margin: 14px 0;
+  }
   /* Ponsel selalu 2 kolom, apa pun pilihan "Tampilan" di desktop; kartu ikut dikecilkan agar muat. */
   .property-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -1006,16 +1009,31 @@ footer > small {
     width: 16px;
     height: 16px;
   }
+  /* Ponsel: tab jadi selebar layar dan hanya "Urutkan" yang tersisa satu baris.
+     Dropdown "Tampilan" disembunyikan karena grid ponsel selalu dikunci 2 kolom. */
   .listing-toolbar {
-    align-items: start;
+    gap: 12px;
+  }
+  .tabs {
+    width: 100%;
+  }
+  .tabs button {
+    flex: 1;
+    padding: 8px 4px;
+    font-size: 12px;
   }
   .sort {
     width: 100%;
     justify-content: space-between;
+    gap: 8px;
   }
   .sort select {
     flex: 1;
-    max-width: 220px;
+    min-width: 0;
+    max-width: 200px;
+  }
+  .density-sort {
+    display: none;
   }
   .how {
     padding: 48px 20px;
