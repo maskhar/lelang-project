@@ -2,7 +2,8 @@ import { boolean, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-or
 import { appSchema } from "./namespace";
 import { profiles } from "./users";
 
-// Endpoint webhook keluar, satu baris per nama event (sekarang hanya 'lead_notification').
+// Endpoint webhook keluar, satu baris per nama tujuan: 'lead_notification' (WhatsApp/n8n) dan
+// 'staff_notification' (notifikasi staf, pengganti email). Lihat src/server/webhooks/names.ts.
 // secret_ciphertext menyimpan secret HMAC terenkripsi AES-256-GCM (kunci: WEBHOOK_SECRET_ENC_KEY),
 // bukan plaintext, agar dump database yang bocor tidak langsung bisa memalsukan request ke n8n.
 // Null berarti secret belum pernah dibuat, sehingga webhook belum bisa dikirim.

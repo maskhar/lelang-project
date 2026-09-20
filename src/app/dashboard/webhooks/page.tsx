@@ -1,16 +1,40 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { apiRequest } from "@/components/api-client";
 import { csrfHeaders } from "@/components/csrf";
 import { FormError } from "@/components/form-error";
+import { formatWib } from "@/lib/datetime";
+import { webhookNames, type WebhookName } from "@/server/webhooks/names";
 import styles from "../dashboard-shell.module.css";
 
 type Config = { url: string; enabled: boolean; hasSecret: boolean; updatedAt: string | null };
 type TestResult = { ok: boolean; status: number | null; latencyMs: number; error?: string; bodySnippet?: string; payloadSent: Record<string, unknown> };
-const timestamp = (value: string) => new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(new Date(value)) + " WIB";
 
-export default function Page() {
+// Satu halaman, dua tujuan berbeda: webhook lead dipakai otomasi WhatsApp (kontak PII), webhook staf
+// menggantikan email notifikasi internal. Teksnya dibedakan supaya admin tidak salah menempel URL.
+const hooks: Record<WebhookName, { label: string; intro: string; urlPlaceholder: string; enableHint: string; testIntro: string }> = {
+  lead_notification: {
+    label: "Lead → WhatsApp",
+    intro: "Kirim setiap lead baru ke n8n sebagai POST JSON. Payload berisi kontak asli pemohon (nama, email, telepon, pesan) beserta data properti, jadi pastikan endpoint tujuan aman.",
+    urlPlaceholder: "https://n8n.contoh.id/webhook/lead",
+    enableHint: "Saat nonaktif, lead tetap tersimpan dan muncul di dashboard, tapi tidak ada event webhook yang diantre.",
+    testIntro: "Menembakkan payload contoh (test: true) dengan bentuk persis sama seperti lead asli, supaya field bisa dipetakan di n8n sambil melihat execution log. Tidak membuat lead dan tidak lewat antrean worker.",
+  },
+  staff_notification: {
+    label: "Notifikasi staf",
+    intro: "Pengganti email notifikasi internal: lead baru, review properti, properti terjual, arsip/hapus massal, pengajuan akses, dan perubahan role. Setiap event membawa field message yang sudah siap diteruskan apa adanya ke WhatsApp/Telegram grup staf.",
+    urlPlaceholder: "https://n8n.contoh.id/webhook/notifikasi-staf",
+    enableHint: "Saat nonaktif, aksi tetap tercatat di audit log dan dashboard, tapi tidak ada event notifikasi yang diantre.",
+    testIntro: "Menembakkan contoh notifikasi review properti (test: true) dengan amplop yang sama untuk semua event, supaya pemetaan field di n8n cukup sekali. Tidak mengubah data apa pun.",
+  },
+};
+
+function WebhooksView() {
+  const searchParams = useSearchParams();
+  const initial = webhookNames.includes(searchParams.get("hook") as WebhookName) ? (searchParams.get("hook") as WebhookName) : "lead_notification";
+  const [hook, setHook] = useState<WebhookName>(initial);
   const [config, setConfig] = useState<Config | null>(null);
   const [url, setUrl] = useState("");
   const [enabled, setEnabled] = useState(false);
@@ -24,16 +48,19 @@ export default function Page() {
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const mutationLock = useRef(false);
+  const copy = hooks[hook];
 
   useEffect(() => {
     const controller = new AbortController();
-    apiRequest<Config>("/api/v1/admin/webhooks", { cache: "no-store", signal: controller.signal })
+    apiRequest<Config>("/api/v1/admin/webhooks?name=" + hook, { cache: "no-store", signal: controller.signal })
       .then((data) => { setConfig(data); setUrl(data.url); setEnabled(data.enabled); setError(null); })
       .catch((reason) => { if (!controller.signal.aborted) setError(reason); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [refresh]);
+  }, [refresh, hook]);
   const reload = () => { setLoading(true); setNotice(""); setRefresh((value) => value + 1); };
+  // Secret & hasil uji milik webhook sebelumnya tidak boleh ikut terbawa saat berpindah tujuan.
+  const switchHook = (value: WebhookName) => { setHook(value); setLoading(true); setNotice(""); setError(null); setResult(null); setRevealedSecret(""); setRotating(false); setRotateConfirm(""); window.history.replaceState(null, "", "?hook=" + value); };
 
   async function mutate(run: () => Promise<void>) {
     if (mutationLock.current) return;
@@ -43,18 +70,18 @@ export default function Page() {
     finally { mutationLock.current = false; setBusy(false); }
   }
   const save = () => mutate(async () => {
-    const data = await apiRequest<Config>("/api/v1/admin/webhooks", { method: "PATCH", headers: { "Content-Type": "application/json", ...await csrfHeaders() }, body: JSON.stringify({ url: url.trim(), enabled }) });
+    const data = await apiRequest<Config>("/api/v1/admin/webhooks?name=" + hook, { method: "PATCH", headers: { "Content-Type": "application/json", ...await csrfHeaders() }, body: JSON.stringify({ url: url.trim(), enabled }) });
     setConfig(data); setUrl(data.url); setEnabled(data.enabled); setNotice("Konfigurasi webhook disimpan.");
   });
   // Secret baru menggantikan yang lama seketika: n8n akan menolak tanda tangan sampai nilai ini dipasang di sana.
   const rotate = () => mutate(async () => {
-    const data = await apiRequest<{ secret: string }>("/api/v1/admin/webhooks/secret", { method: "POST", headers: await csrfHeaders() });
+    const data = await apiRequest<{ secret: string }>("/api/v1/admin/webhooks/secret?name=" + hook, { method: "POST", headers: await csrfHeaders() });
     setRevealedSecret(data.secret); setRotateConfirm(""); setRotating(false); setNotice("Secret baru dibuat. Salin sekarang — nilai ini tidak akan ditampilkan lagi.");
     setConfig((current) => (current ? { ...current, hasSecret: true } : current));
   });
   const fireTest = () => mutate(async () => {
     setResult(null);
-    const data = await apiRequest<TestResult>("/api/v1/admin/webhooks/test", { method: "POST", headers: await csrfHeaders() });
+    const data = await apiRequest<TestResult>("/api/v1/admin/webhooks/test?name=" + hook, { method: "POST", headers: await csrfHeaders() });
     setResult(data); setNotice(data.ok ? "Webhook contoh terkirim." : "Webhook contoh gagal terkirim — lihat detail di bawah.");
   });
 
@@ -62,10 +89,12 @@ export default function Page() {
     <div className={styles.heading}>
       <div>
         <h1>Webhook</h1>
-        <p>Kirim setiap lead baru ke n8n sebagai POST JSON. Payload berisi kontak asli pemohon (nama, email, telepon, pesan) beserta data properti, jadi pastikan endpoint tujuan aman.</p>
+        <p>{copy.intro}</p>
       </div>
       <div className={styles.actions}><button type="button" disabled={loading || busy} onClick={reload}>Muat ulang</button></div>
     </div>
+
+    <div className={styles.actions}>{webhookNames.map((name) => <button key={name} type="button" className={styles.chip} aria-pressed={hook === name} disabled={busy} onClick={() => switchHook(name)}>{hooks[name].label}</button>)}</div>
 
     <FormError error={error} />
     {notice && <p className={styles.notice} role="status">{notice}</p>}
@@ -77,16 +106,16 @@ export default function Page() {
         <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <fieldset>
             <label className={styles.full}>URL webhook
-              <input type="url" value={url} maxLength={2000} required placeholder="https://n8n.contoh.id/webhook/lead" onChange={(event) => setUrl(event.target.value)} />
+              <input type="url" value={url} maxLength={2000} required placeholder={copy.urlPlaceholder} onChange={(event) => setUrl(event.target.value)} />
             </label>
             <label className={styles.full}>
               <span><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Aktifkan pengiriman otomatis</span>
-              <small>Saat nonaktif, lead tetap tersimpan dan muncul di dashboard, tapi tidak ada event webhook yang diantre.</small>
+              <small>{copy.enableHint}</small>
             </label>
           </fieldset>
           <div className={styles.actions}><button type="submit" className={styles.primary} disabled={busy}>{busy ? "Menyimpan…" : "Simpan"}</button></div>
         </form>
-        {config?.updatedAt && <p><small>Terakhir diubah {timestamp(config.updatedAt)}.</small></p>}
+        {config?.updatedAt && <p><small>Terakhir diubah {formatWib(config.updatedAt)}.</small></p>}
       </section>
 
       <section className={styles.panel}>
@@ -113,7 +142,7 @@ export default function Page() {
 
       <section className={styles.panel}>
         <h2>Uji webhook</h2>
-        <p>Menembakkan payload contoh (<code>test: true</code>) dengan bentuk persis sama seperti lead asli, supaya field bisa dipetakan di n8n sambil melihat execution log. Tidak membuat lead dan tidak lewat antrean worker.</p>
+        <p>{copy.testIntro}</p>
         <div className={styles.actions}><button type="button" className={styles.primary} disabled={busy || !config?.hasSecret || !config?.url} onClick={() => void fireTest()}>{busy ? "Mengirim…" : "Kirim contoh webhook"}</button></div>
         {!config?.hasSecret && <p><small>Simpan URL dan buat secret terlebih dahulu.</small></p>}
         {result && <div className={styles.grid}>
@@ -130,3 +159,5 @@ export default function Page() {
     </div>}
   </>;
 }
+
+export default function Page() { return <Suspense fallback={<p>Memuat…</p>}><WebhooksView /></Suspense>; }

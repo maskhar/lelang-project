@@ -3,13 +3,14 @@ import type { Pool } from "pg";
 import { buildLeadWebhookPayload } from "./payload";
 import { signWebhookRequest } from "./sign";
 import { decryptWebhookSecret } from "./crypto";
+import type { WebhookName } from "./names";
 
 export type WebhookSendResult = { ok: boolean; status: number | null; latencyMs: number; bodySnippet?: string; error?: string };
 
 // redirect:"manual" — 3xx dihitung gagal, tidak pernah diikuti otomatis, supaya endpoint tidak bisa
 // dibelokkan ke host lain oleh respons pihak ketiga. Dipakai baik oleh worker (pengiriman asli)
 // maupun rute admin /test (pengiriman sinkron untuk pemetaan field di n8n).
-export async function sendWebhookRequest(url: string, secret: string, payload: { deliveryId: string }, timeoutMs = 5000): Promise<WebhookSendResult> {
+export async function sendWebhookRequest(url: string, secret: string, payload: { deliveryId: string; event: string }, timeoutMs = 5000): Promise<WebhookSendResult> {
   const rawBody = JSON.stringify(payload);
   const timestamp = String(Math.floor(Date.now() / 1000));
   const signature = signWebhookRequest(secret, timestamp, rawBody);
@@ -21,7 +22,7 @@ export async function sendWebhookRequest(url: string, secret: string, payload: {
       signal: AbortSignal.timeout(timeoutMs),
       headers: {
         "Content-Type": "application/json",
-        "X-Lelang-Event": "lead.created",
+        "X-Lelang-Event": payload.event,
         "X-Lelang-Delivery-Id": payload.deliveryId,
         "X-Lelang-Timestamp": timestamp,
         "X-Lelang-Signature": signature,
@@ -36,14 +37,19 @@ export async function sendWebhookRequest(url: string, secret: string, payload: {
   }
 }
 
+// Baris hilang, enabled=false, atau secret belum dibuat dikembalikan null — pemanggil selesai tanpa
+// throw, supaya webhook yang dimatikan setelah event diantre tidak menjadi dead-letter.
+export async function loadEndpoint(pool: Pool, name: WebhookName) {
+  const { rows } = await pool.query("select url, secret_ciphertext, enabled from app.webhook_endpoints where name=$1", [name]);
+  const hook = rows[0];
+  return !hook || !hook.enabled || !hook.secret_ciphertext ? null : { url: hook.url as string, secret: decryptWebhookSecret(hook.secret_ciphertext) };
+}
+
 // Dipanggil worker outbox untuk event webhook.lead_created. Konfigurasi dan data lead/properti
 // dibaca ULANG di sini (bukan dari payload outbox) supaya URL/secret/enabled terbaru yang dipakai.
-// Baris hilang atau enabled=false selesai tanpa throw — webhook yang dimatikan setelah lead
-// diantre tidak boleh jadi dead-letter.
 export async function deliverLeadWebhook(pool: Pool, event: { id: string; payload: Record<string, unknown> }) {
-  const { rows: hookRows } = await pool.query("select url, secret_ciphertext, enabled from app.webhook_endpoints where name='lead_notification'");
-  const hook = hookRows[0];
-  if (!hook || !hook.enabled || !hook.secret_ciphertext) return;
+  const hook = await loadEndpoint(pool, "lead_notification");
+  if (!hook) return;
   const { rows: leadRows } = await pool.query(
     `select l.id, l.name, l.email, l.phone, l.message, l.created_at,
             p.id as property_id, p.sku, p.slug, p.type, p.sale_mode, p.asking_price, r.title, r.listing_snapshot
@@ -61,6 +67,6 @@ export async function deliverLeadWebhook(pool: Pool, event: { id: string; payloa
     lead: { id: row.id, name: row.name, email: row.email, phone: row.phone, message: row.message, createdAt: row.created_at },
     property: { id: row.property_id, sku: row.sku, slug: row.slug, title: row.title || "", type: row.type, saleMode: row.sale_mode, askingPrice: Number(row.asking_price), city: snapshot.city || "", province: snapshot.province || "", address: snapshot.address || null },
   });
-  const result = await sendWebhookRequest(hook.url, decryptWebhookSecret(hook.secret_ciphertext), payload);
+  const result = await sendWebhookRequest(hook.url, hook.secret, payload);
   if (!result.ok) throw new Error("Webhook delivery failed: " + (result.error || result.status));
 }
