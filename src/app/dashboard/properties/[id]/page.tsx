@@ -13,7 +13,7 @@ import styles from "../../dashboard-shell.module.css";
 
 type Media = { id: string; status: string; isCover: boolean; sortOrder: number };
 type Revision = { id: string; revisionNumber: number; status: string; title: string; description: string; address: string | null; landAreaM2: number; buildingAreaM2: number; bedroomCount: number; auctionStartsAt: string | null; auctionEndsAt: string | null; listingSnapshot: Pick<ListingFormValue, "city" | "province" | "type" | "askingPrice" | "saleMode"> & Partial<Pick<ListingFormValue, "address" | "latitude" | "longitude">> | null };
-type Detail = { property: { id: string; sku: string; version: number; publicationStatus: string; availabilityStatus: string }; revisions: Revision[]; media: Media[]; permissions: { canMarkSold: boolean } };
+type Detail = { property: { id: string; sku: string; version: number; publicationStatus: string; availabilityStatus: string; publishedRevisionId: string | null }; revisions: Revision[]; media: Media[]; permissions: { canMarkSold: boolean } };
 export default function EditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -91,8 +91,11 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
         <div className={styles.grid}>
           <section className={styles.panel}>
             <div className={styles.panelHead}><h2>Data listing</h2>{locked && <span className={styles.badge} data-status="pending">Terkunci</span>}</div>
-            <p>Setiap simpan membuat revisi baru. Foto revisi sebelumnya tidak disalin — unggah ulang sebelum review. Snapshot publik lama tetap tampil sampai disetujui.</p>
-            <PropertyForm key={id + ":" + formKey} initial={initial} onSave={save} disabled={locked || busy} statusActions={<><ListingReview id={id} version={detail.property.version} isAdmin={isAdmin} publicationStatus={detail.property.publicationStatus} onChanged={async () => { await load(); setFormKey((current) => current + 1); }} />{detail.permissions.canMarkSold && detail.property.publicationStatus === "published" && detail.property.availabilityStatus === "available" && <PropertyAvailability id={id} version={detail.property.version} onChanged={async () => { await load(); }} />}</>} />
+            <p>Setiap simpan membuat revisi baru. Foto siap dari revisi sebelumnya otomatis disalin ke revisi baru ini; foto yang baru diunggah tetap perlu diverifikasi sebelum review. Snapshot publik lama tetap tampil sampai disetujui.</p>
+            {detail.property.publishedRevisionId && revision.id !== detail.property.publishedRevisionId && (
+              <p role="status" className={styles.notice}>Revisi ini belum tayang publik — situs masih menampilkan versi lama. Klik &quot;Kirim review&quot; agar perubahan tampil.</p>
+            )}
+            <PropertyForm key={id + ":" + formKey} initial={initial} onSave={save} disabled={locked || busy} statusActions={<><ListingReview id={id} version={detail.property.version} isAdmin={isAdmin} publicationStatus={detail.property.publicationStatus} onChanged={async () => { await load(); setFormKey((current) => current + 1); }} />{detail.permissions.canMarkSold && detail.property.publicationStatus === "published" && <PropertyAvailability id={id} version={detail.property.version} availabilityStatus={detail.property.availabilityStatus} onChanged={async () => { await load(); }} />}</>} />
           </section>
 
 

@@ -6,7 +6,8 @@ import { getDatabase } from "@/server/db/client";
 import { properties, propertyRevisions, propertyMedia, auditLogs, outboxEvents, leads, profiles, webhookEndpoints } from "@/server/db/schema";
 import { requireRole, type Actor } from "@/server/auth/actor";
 import { AuthHttpError } from "@/server/auth/http";
-import { discard, discardPublic } from "@/server/storage/local";
+import { copyPublic, discard, discardPublic } from "@/server/storage/local";
+import { mediaObjectPath } from "@/server/media/object-path";
 import { listingInput, transitionInput, leadInput, identifier } from "./validation";
 import { denied, isAgentOnly, isBuyerOnly, isOwnerOnly, isStaff } from "./policy";
 
@@ -58,8 +59,25 @@ export async function editListing(actor: Actor, id: string, version: number, inp
     const [latest] = await transaction.select().from(propertyRevisions).where(eq(propertyRevisions.propertyId, id)).orderBy(desc(propertyRevisions.revisionNumber)).limit(1);
     if (latest?.status === "pending") throw new AuthHttpError(409, "REVIEW_PENDING", "Revisi sedang diperiksa.");
     const [revision] = await transaction.insert(propertyRevisions).values({ propertyId: id, revisionNumber: (latest?.revisionNumber ?? 0) + 1, ...revisionValues(input), listingSnapshot: snapshot(input) }).returning();
+    // Foto tidak melekat ke properti, melekat ke revisi (lihat property_media.revision_id). Tanpa ini setiap
+    // simpan bikin revisi baru dengan 0 foto dan memaksa upload ulang meski hanya harga/deskripsi yang berubah.
+    // File fisik digandakan (bukan cuma baris DB) karena object_path unik per baris — dua revisi tidak boleh
+    // menunjuk file yang sama, supaya hapus foto di satu revisi tidak ikut menghapus foto revisi lain.
+    const previousMedia = latest ? await transaction.select().from(propertyMedia).where(and(eq(propertyMedia.revisionId, latest.id), eq(propertyMedia.status, "ready"))).orderBy(asc(propertyMedia.sortOrder)) : [];
+    const copiedPaths: string[] = [];
+    try {
+      for (const item of previousMedia) {
+        const destination = mediaObjectPath(sku, item.sortOrder + 1, randomUUID());
+        await copyPublic(item.objectPath, destination);
+        copiedPaths.push(destination);
+        await transaction.insert(propertyMedia).values({ revisionId: revision.id, bucket: item.bucket, objectPath: destination, contentType: item.contentType, sizeBytes: item.sizeBytes, checksumSha256: item.checksumSha256, sortOrder: item.sortOrder, isCover: item.isCover, status: "ready" });
+      }
+    } catch (error) {
+      await Promise.all(copiedPaths.map((path) => discardPublic(path).catch(() => undefined)));
+      throw error;
+    }
     await transaction.update(properties).set({ sku, publicationStatus: property.publishedRevisionId ? property.publicationStatus : "draft", version: version + 1, updatedAt: new Date() }).where(eq(properties.id, id));
-    await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property.edited", entityType: "property", entityId: id, metadata: { revisionId: revision.id } });
+    await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property.edited", entityType: "property", entityId: id, metadata: { revisionId: revision.id, mediaCopied: previousMedia.length } });
     return { revision, version: version + 1 };
   });
 }
@@ -115,6 +133,23 @@ export async function markListingSold(actor: Actor, id: string, value: unknown) 
     if (property.publicationStatus !== "published" || property.availabilityStatus !== "available") throw new AuthHttpError(409, "INVALID_TRANSITION", "Hanya properti terpublikasi dan tersedia dapat ditandai terjual.");
     const [updated] = await transaction.update(properties).set({ availabilityStatus: "sold", version: property.version + 1, updatedAt: new Date() }).where(eq(properties.id, id)).returning();
     await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property.sold", entityType: "property", entityId: id, metadata: { reason: input.reason } });
+    return updated;
+  });
+}
+
+// Kebalikan markListingSold, buat salah tandai terjual. Tidak menyentuh publicationStatus/revisi — cuma
+// availabilityStatus, jadi listing langsung bisa menerima lead lagi begitu dikembalikan.
+export async function markListingAvailable(actor: Actor, id: string, value: unknown) {
+  requireRole(actor, "admin");
+  id = identifier.parse(id);
+  const input = z.object({ version: z.number().int().positive(), reason: z.string().trim().min(3).max(1000) }).strict().parse(value);
+  return getDatabase().transaction(async (transaction) => {
+    const [property] = await transaction.select().from(properties).where(eq(properties.id, id)).for("update");
+    if (!property) throw missing();
+    if (property.version !== input.version) throw conflict();
+    if (property.publicationStatus !== "published" || property.availabilityStatus !== "sold") throw new AuthHttpError(409, "INVALID_TRANSITION", "Hanya properti terpublikasi dan berstatus terjual dapat dikembalikan tersedia.");
+    const [updated] = await transaction.update(properties).set({ availabilityStatus: "available", version: property.version + 1, updatedAt: new Date() }).where(eq(properties.id, id)).returning();
+    await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property.available", entityType: "property", entityId: id, metadata: { reason: input.reason } });
     return updated;
   });
 }

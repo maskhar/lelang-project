@@ -14,7 +14,7 @@ async function main() {
   process.env.AUTH_CSRF_SECRET = "a".repeat(64);
   process.env.AUTH_RATE_LIMIT_SECRET = "b".repeat(64);
   process.env.WEBHOOK_SECRET_ENC_KEY = "c".repeat(64);
-  const { createListing, editListing, transitionListing, createLead, publicListing, markListingSold } = await import("../src/server/properties/service.ts");
+  const { createListing, editListing, transitionListing, createLead, publicListing, markListingSold, markListingAvailable } = await import("../src/server/properties/service.ts");
   const { AuthHttpError } = await import("../src/server/auth/http.ts");
   const { AuthorizationError } = await import("../src/server/auth/actor.ts");
   const { setRole, setAccountStatus } = await import("../src/server/auth/admin-users.ts");
@@ -26,7 +26,7 @@ async function main() {
   let hookServer;
   const storage = await mkdtemp(path.join(os.tmpdir(), "lelang-backend-test-"));
   process.env.STORAGE_ROOT = storage;
-  const { saveQuarantine } = await import("../src/server/storage/local.ts");
+  const { saveQuarantine, readPublic } = await import("../src/server/storage/local.ts");
   const { processMedia } = await import("../src/workers/process-media.ts");
   const { catalog } = await import("../src/server/properties/catalog.ts");
   const { deliverOutbox } = await import("../src/workers/deliver-outbox.ts");
@@ -103,10 +103,24 @@ async function main() {
     const sold = await markListingSold(actor, propertyId, { version: published.rows[0].version, reason: "Penjualan selesai" });
     assert.equal(sold.availabilityStatus, "sold");
     await assert.rejects(createLead({ propertyId, name: "Pengunjung kedua", email: "visitor-2@example.invalid", consent: true }), (error) => error instanceof AuthHttpError && error.code === "NOT_FOUND");
-    await client.query("update app.properties set availability_status='available', version=version+1 where id=$1", [propertyId]);
-    const revisedVersion = (await client.query("select version from app.properties where id=$1", [propertyId])).rows[0].version;
-    const revised = await editListing(actor, propertyId, revisedVersion, { ...listing, askingPrice: 990000000 });
+    await assert.rejects(markListingSold(actor, propertyId, { version: sold.version, reason: "Tandai dua kali" }), (error) => error instanceof AuthHttpError && error.code === "INVALID_TRANSITION", "Terjual tidak bisa ditandai terjual lagi");
+    await assert.rejects(markListingAvailable({ ...actor, roles: ["editor"] }, propertyId, { version: sold.version, reason: "Pembeli mundur" }), (error) => error instanceof AuthorizationError);
+    const restored = await markListingAvailable(actor, propertyId, { version: sold.version, reason: "Pembeli mundur, salah tandai" });
+    assert.equal(restored.availabilityStatus, "available"); assert.equal(restored.publicationStatus, "published", "Kembalikan tersedia tidak menyentuh status publikasi");
+    assert.ok((await createLead({ propertyId, name: "Pengunjung ketiga", email: "visitor-3@example.invalid", consent: true })).id, "Lead kembali diterima setelah status tersedia");
+    await assert.rejects(markListingAvailable(actor, propertyId, { version: restored.version, reason: "Sudah tersedia" }), (error) => error instanceof AuthHttpError && error.code === "INVALID_TRANSITION");
+    const revised = await editListing(actor, propertyId, restored.version, { ...listing, askingPrice: 990000000 });
     assert.equal((await publicListing(created.property.slug)).askingPrice, listing.askingPrice);
+    // Foto "ready" ikut ke revisi baru: baris DB baru (id dan object_path sendiri) dengan isi file sama,
+    // sehingga edit teks/harga tidak lagi memaksa upload ulang dan approve tidak kena MEDIA_NOT_READY.
+    const carried = await client.query("select id,object_path,checksum_sha256,is_cover,sort_order,status from app.property_media where revision_id=$1", [revised.revision.id]);
+    assert.equal(carried.rows.length, 1, "Satu foto ready disalin ke revisi baru");
+    assert.equal(carried.rows[0].status, "ready"); assert.equal(carried.rows[0].is_cover, true);
+    const origin = await client.query("select object_path,checksum_sha256 from app.property_media where id=$1", [mediaId]);
+    assert.equal(carried.rows[0].checksum_sha256, origin.rows[0].checksum_sha256, "Isi foto identik dengan revisi sebelumnya");
+    assert.notEqual(carried.rows[0].id, mediaId); assert.notEqual(carried.rows[0].object_path, origin.rows[0].object_path, "object_path unik per baris");
+    assert.deepEqual(await readPublic(carried.rows[0].object_path), await readPublic(origin.rows[0].object_path), "File fisik hasil salinan byte-identik");
+    assert.equal((await client.query("select metadata->>'mediaCopied' as copied from app.audit_logs where entity_id=$1 and action='property.edited' order by created_at desc limit 1", [propertyId])).rows[0].copied, "1");
     const concurrent = await Promise.allSettled([editListing(actor, propertyId, revised.version, listing), editListing(actor, propertyId, revised.version, listing)]);
     assert.equal(concurrent.filter((result) => result.status === "fulfilled").length, 1);
     assert.equal(concurrent.filter((result) => result.status === "rejected" && result.reason.code === "VERSION_CONFLICT").length, 1);
@@ -178,7 +192,7 @@ async function main() {
     assert.deepEqual(adminAudit.rows.map((row) => row.action).sort(), ["admin.account.disabled", "admin.account.enabled", "admin.role.granted", "admin.role.revoked"]);
     await client.query("delete from app.audit_logs where entity_id=$1", [targetId]);
     await client.query("delete from app.profiles where id=$1", [targetId]);
-    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, SMTP retry, dead-letter, checksum rejection, admin role/status management + SELF_LOCKOUT, webhook lead terkirim + tanda tangan HMAC + gate enabled.");
+    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, salin foto ready antar-revisi, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, SMTP retry, dead-letter, checksum rejection, admin role/status management + SELF_LOCKOUT, webhook lead terkirim + tanda tangan HMAC + gate enabled, sold/available dua arah.");
   } finally {
     if (hookServer) await new Promise((resolve) => hookServer.close(resolve));
     await client.query("delete from app.webhook_endpoints where name='lead_notification'").catch(() => undefined);
