@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { apiRequest } from "./api-client";
 import { csrfHeaders } from "./csrf";
 import { FormError } from "./form-error";
+import styles from "@/app/dashboard/dashboard.module.css";
 
 // availabilityStatus terpisah dari publicationStatus: properti tetap "published" saat terjual, hanya form
 // minat publik yang ditutup. Arah sebaliknya ("available") disediakan untuk memperbaiki salah tandai.
@@ -33,5 +34,5 @@ export default function PropertyAvailability({ id, version, availabilityStatus, 
   // listing (property-form.tsx). Field wajib-isi yang kosong di situ membuat browser memblokir submit form
   // utama tanpa pesan apa pun — jadi "Simpan draft" mati diam begitu properti berstatus published. Panjang
   // minimal alasan tetap divalidasi di submit() di atas.
-  return <div className="property-availability"><fieldset disabled={busy}><legend>Status penjualan · khusus admin</legend><p>{sold ? "Properti ditandai terjual — form minat publik tertutup." : "Properti tersedia — form minat publik terbuka."}</p><label>{sold ? "Alasan kembalikan tersedia" : "Alasan konfirmasi terjual"} <input minLength={3} maxLength={1000} value={reason} onChange={(event) => setReason(event.target.value)} /></label><button type="button" onClick={() => void submit()}>{busy ? "Menyimpan…" : sold ? "Kembalikan tersedia" : "Tandai terjual"}</button></fieldset><FormError error={error} /></div>;
+  return <div className={styles.propertyAvailability}><fieldset disabled={busy}><legend>Status penjualan · khusus admin</legend><p>{sold ? "Properti ditandai terjual — form minat publik tertutup." : "Properti tersedia — form minat publik terbuka."}</p><label>{sold ? "Alasan kembalikan tersedia" : "Alasan konfirmasi terjual"} <input minLength={3} maxLength={1000} value={reason} onChange={(event) => setReason(event.target.value)} /></label><button type="button" onClick={() => void submit()}>{busy ? "Menyimpan…" : sold ? "Kembalikan tersedia" : "Tandai terjual"}</button></fieldset><FormError error={error} /></div>;
 }
