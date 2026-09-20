@@ -394,6 +394,10 @@ input[type="radio"] {
   width: auto;
   font-size: 13px;
 }
+/* Pasangan chip: dropdown jenis hanya dipakai di ponsel (lihat breakpoint 720px). */
+.type-sort {
+  display: none;
+}
 .result-count {
   font-size: 13px;
   color: var(--muted);
@@ -943,13 +947,6 @@ footer > small {
   .property-section {
     padding: 24px 20px 48px;
   }
-  .chips {
-    gap: 7px;
-    margin-bottom: 25px;
-  }
-  .chips button {
-    padding: 8px 16px;
-  }
   .result-count {
     margin: 14px 0;
   }
@@ -1034,6 +1031,22 @@ footer > small {
   }
   .density-sort {
     display: none;
+  }
+  /* Tujuh chip jenis membungkus jadi tiga baris di layar sempit; diganti dropdown yang sebaris "Urutkan".
+     `order` dipakai agar tab mode tetap di atas walau dropdown jenis lebih dulu di DOM (urutan DOM
+     menaruh dropdown dekat chip yang digantikannya). */
+  .chips {
+    display: none;
+  }
+  .type-sort {
+    display: flex;
+    order: 2;
+  }
+  .listing-toolbar .tabs {
+    order: 1;
+  }
+  .listing-toolbar .sort:not(.type-sort) {
+    order: 3;
   }
   .how {
     padding: 48px 20px;
