@@ -34,7 +34,7 @@ Semua data simulasi. Belum ada login lengkap, penawaran nyata, atau pembayaran. 
 
 ## Backend mandiri
 
-Arah baru: Next.js + PostgreSQL mandiri + Drizzle, login Google OpenID Connect, session opaque milik aplikasi, storage volume persisten, SMTP adapter, dan worker outbox. Tidak memakai Supabase. Google hanya identity provider; profil, role, dan sesi tetap dikelola aplikasi. UI katalog/dashboard tetap menggunakan SQLite.
+Arah baru: Next.js + PostgreSQL mandiri + Drizzle, login Google OpenID Connect, session opaque milik aplikasi, storage volume persisten, webhook keluar, dan worker outbox. Tidak memakai Supabase. Google hanya identity provider; profil, role, dan sesi tetap dikelola aplikasi. UI katalog/dashboard tetap menggunakan SQLite.
 
 Aturan: `AGENTS.md`. Kebutuhan: `docs/PRD.md`. Desain: `docs/SDD.md`. Setup/status: `docs/backend-setup.md`.
 

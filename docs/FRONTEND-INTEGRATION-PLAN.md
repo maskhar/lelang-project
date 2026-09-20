@@ -114,7 +114,7 @@ Review, lead, audit, outbox, users. Selesai bila lifecycle listing dan lead bisa
 Cursor pagination, URL-synced filter, gallery, lead UX, mobile, keyboard, copy legal. Selesai bila visitor mencari listing dan mengirim minat tanpa kebocoran draft.
 
 ### Fase E — E2E
-Chromium E2E: mocked auth plus create, upload, submit, approve, catalog, lead, Mailpit. OAuth Google nyata tetap manual menggunakan akun preapproved.
+Chromium E2E: mocked auth plus create, upload, submit, approve, catalog, lead, webhook staf. OAuth Google nyata tetap manual menggunakan akun preapproved.
 
 ## Gap Integrasi yang Harus Diselesaikan
 
@@ -134,7 +134,7 @@ Chromium E2E: mocked auth plus create, upload, submit, approve, catalog, lead, M
 
 - Unit: DTO mapping, timezone, harga rupiah, error parser, state recovery upload.
 - Integration: 401/403, CSRF invalid, konflik versi dua editor, publikasi revisi, media pending/rejected, retry dead-letter.
-- E2E terisolasi: visitor/editor/admin; email diarahkan Mailpit; akun sintetis hanya database test.
+- E2E terisolasi: visitor/editor/admin; notifikasi staf diarahkan webhook uji; akun sintetis hanya database test.
 - Uji URL filter dan cursor lintas halaman dengan lebih dari 100 listing; reset cursor ketika filter berubah.
 - Uji publikasi pertama serta revisi listing yang sudah published. Snapshot lama tetap tampil sampai approve.
 - Visual QA: lebar 360, 768, dan 1440 px; focus keyboard; screen-reader status; tidak ada horizontal overflow.

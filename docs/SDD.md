@@ -17,8 +17,8 @@ Rancangan menghindari microservice sampai beban, batas organisasi, atau kegagala
 | Database | Source of truth dan transaksi | PostgreSQL + Drizzle |
 | Auth | Google OIDC, session, preapproval akun | Google sebagai identity provider + modul aplikasi |
 | Storage | Foto karantina/publik dan dokumen privat | Volume persisten + StorageAdapter |
-| Worker | Email, media verification, close job | Proses Node terpisah + outbox PostgreSQL |
-| Email | Notifikasi lead/review | SMTP adapter |
+| Worker | Webhook, media verification, close job | Proses Node terpisah + outbox PostgreSQL |
+| Notifikasi | Lead ke WhatsApp/n8n dan notifikasi staf | Dua webhook keluar bertanda tangan HMAC |
 | Rate limit | Google start/callback, lead, upload | Tabel/database awal; Redis hanya saat multi-instance |
 | Observability | Log, health, metrics, alert | JSON log, metrics endpoint, error tracker pilihan tim |
 
@@ -33,7 +33,7 @@ flowchart LR
   Services --> Outbox[(Outbox events)]
   Worker[Node worker] --> DB
   Worker --> Files
-  Worker --> SMTP[SMTP server]
+  Worker --> Hooks[Endpoint webhook n8n]
 ```
 
 ## 4. Struktur kode target
@@ -139,13 +139,13 @@ Policy minimum: editor hanya bekerja pada scope yang diizinkan; admin review dan
 
 ## 9. Worker dan konsistensi
 
-Tulis perubahan domain, audit event, dan outbox dalam transaksi PostgreSQL yang sama. Worker mengklaim batch dengan lock, menyimpan attempts dan availableAt, melakukan exponential backoff, dan memindahkan gagal permanen ke dead-letter status. Handler idempoten; kegagalan SMTP atau media tidak membatalkan lead/listing yang sudah committed.
+Tulis perubahan domain, audit event, dan outbox dalam transaksi PostgreSQL yang sama. Worker mengklaim batch dengan lock, menyimpan attempts dan availableAt, melakukan exponential backoff, dan memindahkan gagal permanen ke dead-letter status. Handler idempoten; kegagalan webhook atau media tidak membatalkan lead/listing yang sudah committed.
 
 ## 10. Deployment
 
-Produksi awal memakai host terkelola tim dengan service terpisah: `web`, `worker`, `postgres`, volume storage, dan SMTP relay. Database tidak memiliki port publik. Reverse proxy terminasi TLS untuk web saja. Backups PostgreSQL dan storage disalin terenkripsi ke lokasi kedua; restore drill rutin menentukan RPO/RTO aktual. `npm run docker:grant` wajib dijalankan sebelum/bersamaan setiap deploy produksi agar role runtime memiliki grant kolom terbaru (termasuk INSERT `app.profiles` untuk self-signup buyer) — lupa menjalankannya membuat login Google pengguna baru gagal 503 karena `permission denied for table profiles` saat provisioning.
+Produksi awal memakai host terkelola tim dengan service terpisah: `web`, `worker`, `postgres`, dan volume storage. Notifikasi keluar lewat endpoint webhook milik tim (n8n), bukan relay email. Database tidak memiliki port publik. Reverse proxy terminasi TLS untuk web saja. Backups PostgreSQL dan storage disalin terenkripsi ke lokasi kedua; restore drill rutin menentukan RPO/RTO aktual. `npm run docker:grant` wajib dijalankan sebelum/bersamaan setiap deploy produksi agar role runtime memiliki grant kolom terbaru (termasuk INSERT `app.profiles` untuk self-signup buyer) — lupa menjalankannya membuat login Google pengguna baru gagal 503 karena `permission denied for table profiles` saat provisioning.
 
-Environment lokal dapat memakai Docker Compose untuk PostgreSQL, Mailpit, web, worker, dan volume storage. Tidak ada dependency Supabase.
+Environment lokal dapat memakai Docker Compose untuk PostgreSQL, web, worker, dan volume storage. Tidak ada dependency Supabase.
 
 ## 11. Keamanan dan operasi
 
@@ -172,17 +172,17 @@ Environment lokal dapat memakai Docker Compose untuk PostgreSQL, Mailpit, web, w
 2. Google login/logout/session/CSRF/rate limit/preapproval akun.
 3. Property/revision workflow dan PostgreSQL read path.
 4. StorageAdapter volume, media worker, dan migrasi foto prototype.
-5. Leads, outbox, SMTP, dashboard metrik, audit.
+5. Leads, outbox, webhook notifikasi, dashboard metrik, audit.
 6. Backup/restore, monitoring, hardening, staging, dan cutover SQLite.
 7. Bidding hanya sesudah legal/product approval serta desain transaksi khusus.
 
 ## 14. Open decisions
 
-- Google OAuth consent screen, admin preapproval workflow, library email, metrics/error tracker, reverse proxy, dan platform deployment.
-- Provider/domain email, kebijakan retensi, MFA admin, backup region kedua, dan kapasitas storage.
+- Google OAuth consent screen, admin preapproval workflow, endpoint webhook notifikasi staf produksi, metrics/error tracker, reverse proxy, dan platform deployment.
+- Kebijakan retensi, MFA admin, backup region kedua, dan kapasitas storage.
 - S3-compatible adapter saat lebih dari satu host dibutuhkan.
 - Bidding, KYC, pembayaran, dan escrow tetap di luar MVP.
 
 ## 15. Hasil tahap development
 
-Compose PostgreSQL/Mailpit lokal aktif, migrasi 0000–0003 diterapkan, role runtime terpisah, dan auth diuji melalui npm run test:auth dengan transport Google mock serta token RS256 sintetis. Login browser Google nyata menunggu OAuth client. Detail port, API, batas implementasi, dan perintah ada di docs/backend-setup.md. Baseline yang sudah diterapkan tidak boleh diregenerasi.
+Compose PostgreSQL lokal aktif, migrasi 0000–0003 diterapkan, role runtime terpisah, dan auth diuji melalui npm run test:auth dengan transport Google mock serta token RS256 sintetis. Login browser Google nyata menunggu OAuth client. Detail port, API, batas implementasi, dan perintah ada di docs/backend-setup.md. Baseline yang sudah diterapkan tidak boleh diregenerasi.

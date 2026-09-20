@@ -1,11 +1,11 @@
 # Setup backend mandiri dengan Google Login
 
-Diperbarui 15 September 2026. PostgreSQL development dan Mailpit lokal sudah berjalan melalui Compose. Drizzle journal 0000–0003 diterapkan ke database development lokal; jangan reset baseline atau mengedit migrasi yang sudah diterapkan. Migrasi 0003 menghapus password hash dan token password lama. Server lama tidak digunakan.
+Diperbarui 20 September 2026. PostgreSQL development lokal sudah berjalan melalui Compose. Notifikasi email dihapus; penggantinya dua webhook keluar (`lead_notification` dan `staff_notification`). Drizzle journal 0000–0003 diterapkan ke database development lokal; jangan reset baseline atau mengedit migrasi yang sudah diterapkan. Migrasi 0003 menghapus password hash dan token password lama. Server lama tidak digunakan.
 
 ## Yang tersedia
 
 - PostgreSQL 17.6 pada loopback port 15432, database lelang_properti_dev, role lelang_app dan lelang_migrator terpisah.
-- Mailpit SMTP port 11025; inbox browser http://127.0.0.1:18025. Belum ada email aplikasi yang dikirim.
+- Webhook keluar diatur dari `/dashboard/webhooks`: `lead_notification` (lead → WhatsApp/n8n) dan `staff_notification` (notifikasi staf). Keduanya ditandatangani HMAC-SHA256; aplikasi tidak mengirim email sama sekali.
 - 12 tabel app termasuk `user_identities`, `oauth_transactions`, dan `auth_rate_limits`; journal migrasi pada schema drizzle.
 - Google OIDC Authorization Code + PKCE/state/nonce; token session acak 256-bit dan SHA-256 token hash database.
 - API Google start/callback, CSRF, logout, me; role/status/preapproval diperiksa server.
@@ -78,7 +78,7 @@ scripts/verify-database.sql menguji insert/constraint/rollback pada database kos
 
 - CLI preapproval development lokal tersedia; API admin dapat membaca akun, tetapi pembuatan/perubahan role tetap memakai CLI migration-role. MFA dan revocation massal belum tersedia.
 - Dashboard, katalog, detail, galeri, dan form minat memakai API v1 PostgreSQL. Data seed SQLite tidak lagi menjadi sumber katalog publik. Migrasi data/foto SQLite lama belum dibuat.
-- SMTP adapter, transactional outbox, media verification worker, storage volume lokal, cleanup media, dead-letter listing/retry, metrics, backup lokal, dan restore test ephemeral tersedia.
+- Webhook notifikasi, transactional outbox, media verification worker, storage volume lokal, cleanup media, dead-letter listing/retry, metrics, backup lokal, dan restore test ephemeral tersedia.
 - Rate limiter global merupakan guard awal: trafik multi-instance/produksi membutuhkan kebijakan quota dan cleanup key kadaluwarsa, alert spam, serta reverse proxy terpercaya.
 - Audit domain dan login/logout sukses tersedia. Load smoke lokal 200 request concurrency 20 menghasilkan P95 379 ms pada 15 September 2026. MFA admin, HTTPS deployment nyata, backup terenkripsi lokasi kedua, alerting eksternal, dan load test staging representatif tetap gate rilis.
 - Tidak ada perubahan ke server Supabase lama, gateway, atau database produksi.
@@ -87,7 +87,7 @@ scripts/verify-database.sql menguji insert/constraint/rollback pada database kos
 ## Operasi backend MVP — 15 September 2026
 
 - API v1 tersedia untuk listing staf, workflow review/publish, katalog/detail publik, media karantina, lead, audit admin, dashboard, health, dan metrics. Endpoint lama `/api/properties` serta `/api/uploads/*` mengembalikan `410`; dashboard prototype belum dihubungkan otomatis agar perubahan frontend pengguna tidak tertimpa.
-- Jalankan worker dengan `npm run worker:outbox -- --once` untuk satu batch atau tanpa `--once` untuk proses berkelanjutan. Worker memverifikasi media, mengirim event SMTP yang dikonfigurasi, retry exponential, lalu memakai `dead_letter` setelah delapan kegagalan.
+- Jalankan worker dengan `npm run worker:outbox -- --once` untuk satu batch atau tanpa `--once` untuk proses berkelanjutan. Worker memverifikasi media, mengirim event webhook yang dikonfigurasi, retry exponential, lalu memakai `dead_letter` setelah delapan kegagalan.
 - `GET /api/v1/health/metrics` wajib header `Authorization: Bearer <METRICS_TOKEN>` dan tidak boleh diekspos publik. Endpoint menampilkan count listing publik, lead baru, outbox pending, dan dead letter.
 - Backup development lokal: tetapkan `BACKUP_ROOT` ke path absolut privat di luar repository, lalu jalankan `npm run backup:local`. Jalankan `npm run test:restore` untuk restore ke PostgreSQL Docker ephemeral. Drill staging/produksi tetap wajib sebelum rilis.
 - Validasi: `npm run typecheck`, `npm run lint`, `npm run db:check`, `npm test`, `npm run test:auth`, dan `npm run test:backend`. `npm test` menjalankan unit test `node:test` di `tests/unit/` tanpa database maupun Docker. `npm run test:backend` menjalankan unit test itu lebih dulu, lalu membuat container PostgreSQL ephemeral pada `127.0.0.1:25433`; tidak memakai volume development atau produksi.

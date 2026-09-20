@@ -4,7 +4,7 @@ Tanggal: 15 September 2026 | Versi: 2.0 | Status: Arah teknis disetujui; detail 
 
 ## Keputusan backend mandiri
 
-Backend dibangun dan dioperasikan sendiri, tanpa Supabase atau BaaS: Next.js + TypeScript, PostgreSQL mandiri, Drizzle ORM/Kit, Google OpenID Connect untuk identitas, session/RBAC aplikasi, storage volume persisten melalui adapter, SMTP, dan worker transactional outbox. Dokumen ini menggantikan keputusan integrasi lama.
+Backend dibangun dan dioperasikan sendiri, tanpa Supabase atau BaaS: Next.js + TypeScript, PostgreSQL mandiri, Drizzle ORM/Kit, Google OpenID Connect untuk identitas, session/RBAC aplikasi, storage volume persisten melalui adapter, webhook keluar, dan worker transactional outbox. Dokumen ini menggantikan keputusan integrasi lama.
 
 Tidak ada akses ke instance/server lama dalam rancangan baru. Kondisi development pada 19 September 2026: schema mandiri, Google OAuth/session/CSRF, self-signup buyer otomatis untuk pengguna Google baru, katalog/detail PostgreSQL, dashboard terlindungi, workflow listing, media, lead, audit, outbox, metrics, backup lokal, manajemen role/status akun dari dashboard admin, dan restore ephemeral tersedia. Akun staf tetap dipraotorisasi. Migrasi data/foto SQLite lama, MFA, dan deployment produksi belum selesai.
 
@@ -62,7 +62,7 @@ Asumsi: satu organisasi pengelola; editor dapat mengelola inventaris bersama. `c
 | FR-08 | P0 | Form minat dengan satu kanal kontak dan persetujuan | Listing harus publik; rate limit; kontak hanya dibaca staf berizin |
 | FR-09 | P0 | Audit perubahan dan publikasi | Aktor, waktu, aksi, entitas, alasan tercatat tanpa token/password |
 | FR-10 | P0 | Backup, restore, monitoring | Restore staging berhasil sebelum rilis |
-| FR-11 | P1 | Notifikasi email lead/review | Kegagalan email tidak menghilangkan lead; retry terlihat operator |
+| FR-11 | P1 | Notifikasi webhook lead/review | Kegagalan webhook tidak menghilangkan lead; retry terlihat operator |
 | FR-12 | P1 | Ringkasan dashboard | Angka berasal dari database, bukan nilai statis |
 
 P0 wajib untuk pilot. P1 dapat menyusul bila operator tetap bisa memproses aktivitas melalui dashboard.
@@ -124,7 +124,7 @@ Tidak ada estimasi minggu sebelum ukuran tim dan keputusan scope tersedia. MVP t
 1. Katalog/perantara atau penyelenggara bidding internal? Default rancangan: katalog dahulu.
 2. Listing operator atau juga penjual eksternal? Default: operator internal.
 3. Kanal kontak produksi, penerima lead, dan prosedur tindak lanjut?
-4. Host mandiri, anggaran, region data, backup di lokasi kedua, SMTP, dan Google OAuth client produksi?
+4. Host mandiri, anggaran, region data, backup di lokasi kedua, endpoint webhook notifikasi staf, dan Google OAuth client produksi?
 5. Dokumen legal wajib, alamat lengkap publik, dan persetujuan pemilik aset?
 6. Retensi data, syarat layanan, dan kewenangan menandai aset terjual?
 
