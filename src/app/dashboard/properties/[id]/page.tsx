@@ -10,11 +10,12 @@ import { FormError } from "@/components/form-error";
 import { StatusBadge } from "@/components/status-badge";
 import ListingReview from "@/components/listing-review";
 import PropertyAvailability from "@/components/property-availability";
+import PropertyAuditLog from "@/components/property-audit-log";
 import styles from "../../dashboard-shell.module.css";
 
 type Media = { id: string; status: string; isCover: boolean; sortOrder: number };
 type Revision = { id: string; revisionNumber: number; status: string; title: string; description: string; address: string | null; landAreaM2: number; buildingAreaM2: number; bedroomCount: number; amenities: string[] | null; auctionStartsAt: string | null; auctionEndsAt: string | null; listingSnapshot: Pick<ListingFormValue, "city" | "province" | "type" | "askingPrice" | "saleMode"> & Partial<Pick<ListingFormValue, "address" | "latitude" | "longitude">> | null };
-type Detail = { property: { id: string; sku: string; version: number; publicationStatus: string; availabilityStatus: string; publishedRevisionId: string | null }; revisions: Revision[]; media: Media[]; permissions: { canMarkSold: boolean } };
+type Detail = { property: { id: string; sku: string; version: number; publicationStatus: string; availabilityStatus: string; publishedRevisionId: string | null }; revisions: Revision[]; media: Media[]; creator: { name: string; email: string } | null; permissions: { canMarkSold: boolean } };
 export default function EditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -68,11 +69,12 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
       <div className={styles.heading}>
         <div>
           <h1>Editor properti</h1>
-          <p>{detail ? <>SKU <span className={styles.sku}>{detail.property.sku}</span> · Versi {detail.property.version} · Revisi {revision?.revisionNumber}</> : "Memuat…"}</p>
+          <p>{detail ? <>SKU <span className={styles.sku}>{detail.property.sku}</span> · Versi {detail.property.version} · Revisi {revision?.revisionNumber}{detail.creator && <> · Dibuat oleh {detail.creator.name}</>}</> : "Memuat…"}</p>
         </div>
         <div className={styles.actions}>
           {detail && <StatusBadge kind="publication" value={detail.property.publicationStatus} />}
           <button type="button" disabled={busy} onClick={() => { if (window.confirm("Muat ulang akan mengganti input belum disimpan dengan data server. Lanjutkan?")) void load().then(() => setFormKey((value) => value + 1)).catch(setError); }}>Muat ulang</button>
+          {isAdmin && <PropertyAuditLog propertyId={id} title={revision?.title} />}
           {isAdmin && <button type="button" className={styles.dangerBtn} disabled={busy} onClick={() => { setConfirmingDelete((current) => !current); setDeleteConfirm(""); }}>Hapus properti</button>}
         </div>
       </div>

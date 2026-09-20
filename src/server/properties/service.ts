@@ -8,6 +8,8 @@ import { requireRole, type Actor } from "@/server/auth/actor";
 import { AuthHttpError } from "@/server/auth/http";
 import { copyPublic, discard, discardPublic } from "@/server/storage/local";
 import { mediaObjectPath } from "@/server/media/object-path";
+import { formatRupiah } from "@/lib/currency";
+import { amenityByKey } from "@/lib/amenities";
 import { listingInput, transitionInput, leadInput, identifier } from "./validation";
 import { denied, isAgentOnly, isBuyerOnly, isOwnerOnly, isStaff } from "./policy";
 
@@ -170,10 +172,62 @@ export async function staffListings(actor: Actor, filters: { status?: string; q?
     title: propertyRevisions.title,
     location: propertyRevisions.listingSnapshot,
     latestRevisionStatus: propertyRevisions.status,
+    createdByName: profiles.name,
   }).from(properties)
     .innerJoin(propertyRevisions, eq(propertyRevisions.propertyId, properties.id))
+    .leftJoin(profiles, eq(profiles.id, properties.createdBy))
     .where(and(sql`${propertyRevisions.revisionNumber} = (select max(latest.revision_number) from app.property_revisions latest where latest.property_id = ${properties.id})`, filters.status ? eq(properties.publicationStatus, filters.status as any) : undefined, filters.q ? sql`${propertyRevisions.title} ilike ${"%" + filters.q + "%"}` : undefined, isStaff(actor) ? undefined : eq(properties.ownerId, actor.profileId)))
     .orderBy(desc(properties.updatedAt), asc(properties.id)).limit(100);
+}
+
+// Label ramah untuk aksi yang tercatat di audit_logs entityType="property" — dipakai popup riwayat aktivitas.
+const propertyActionLabels: Record<string, string> = { "property.created": "Properti dibuat", "property.edited": "Revisi disimpan", "property.submit": "Dikirim untuk review", "property.approve": "Dipublikasikan", "property.revision": "Diminta revisi", "property.reject": "Ditolak", "property.archive": "Diarsipkan", "property.unarchive": "Dipulihkan dari arsip", "property.sold": "Ditandai terjual", "property.available": "Dikembalikan tersedia", "property.deleted": "Dihapus permanen" };
+
+// Bandingkan dua revisi field-per-field untuk popup audit. `before` kosong (revisi pertama) membuat semua
+// field tampil sebagai "(baru)" alih-alih dibandingkan dengan string kosong.
+function diffRevisions(before: typeof propertyRevisions.$inferSelect | undefined, after: typeof propertyRevisions.$inferSelect) {
+  const changes: { label: string; before: string; after: string }[] = [];
+  const push = (label: string, from: string, to: string) => { if (from !== to) changes.push({ label, before: from || "(baru)", after: to }); };
+  push("Judul", before?.title ?? "", after.title);
+  push("Deskripsi", before?.description ?? "", after.description);
+  push("Alamat", before?.address ?? "", after.address ?? "");
+  const beforeSnap = before?.listingSnapshot, afterSnap = after.listingSnapshot;
+  if (afterSnap) {
+    push("Harga", beforeSnap ? formatRupiah(beforeSnap.askingPrice) : "", formatRupiah(afterSnap.askingPrice));
+    push("Lokasi", beforeSnap ? beforeSnap.city + ", " + beforeSnap.province : "", afterSnap.city + ", " + afterSnap.province);
+    push("Jenis", beforeSnap?.type ?? "", afterSnap.type);
+    push("Mode", beforeSnap ? (beforeSnap.saleMode === "auction" ? "Lelang" : "Jual langsung") : "", afterSnap.saleMode === "auction" ? "Lelang" : "Jual langsung");
+  }
+  push("Luas tanah", before ? before.landAreaM2 + " m²" : "", after.landAreaM2 + " m²");
+  push("Luas bangunan", before ? before.buildingAreaM2 + " m²" : "", after.buildingAreaM2 + " m²");
+  push("Kamar tidur", before ? String(before.bedroomCount) : "", String(after.bedroomCount));
+  const beforeAmenities = new Set(before?.amenities ?? []);
+  const afterAmenities = new Set(after.amenities ?? []);
+  const added = [...afterAmenities].filter((key) => !beforeAmenities.has(key)).map((key) => amenityByKey.get(key)?.label ?? key);
+  const removed = [...beforeAmenities].filter((key) => !afterAmenities.has(key)).map((key) => amenityByKey.get(key)?.label ?? key);
+  if (added.length || removed.length) changes.push({ label: "Fasilitas", before: removed.length ? removed.join(", ") : "—", after: added.length ? added.join(", ") : "—" });
+  return changes;
+}
+
+// Riwayat aktivitas per properti untuk popup "Log": gabungkan audit_logs (siapa, kapan, aksi apa) dengan
+// diff antar revisi (apa yang berubah). Admin saja — sama seperti /dashboard/audit.
+export async function propertyAuditTrail(actor: Actor, id: string) {
+  requireRole(actor, "admin");
+  id = identifier.parse(id);
+  const database = getDatabase();
+  const [property] = await database.select({ id: properties.id }).from(properties).where(eq(properties.id, id));
+  if (!property) throw missing();
+  const logs = await database.select({ id: auditLogs.id, action: auditLogs.action, metadata: auditLogs.metadata, createdAt: auditLogs.createdAt, actorName: profiles.name, actorEmail: profiles.email }).from(auditLogs).leftJoin(profiles, eq(profiles.id, auditLogs.actorId)).where(and(eq(auditLogs.entityType, "property"), eq(auditLogs.entityId, id))).orderBy(desc(auditLogs.createdAt));
+  const revisions = await database.select().from(propertyRevisions).where(eq(propertyRevisions.propertyId, id)).orderBy(asc(propertyRevisions.revisionNumber));
+  const byId = new Map(revisions.map((row) => [row.id, row] as const));
+  const byNumber = new Map(revisions.map((row) => [row.revisionNumber, row] as const));
+  return logs.map((log) => {
+    const metadata = (log.metadata ?? {}) as { revisionId?: string; mediaCopied?: number; reason?: string | null; bulk?: boolean };
+    let changes: { label: string; before: string; after: string }[] = [];
+    if (log.action === "property.created") { const first = byNumber.get(1); if (first) changes = diffRevisions(undefined, first); }
+    else if (log.action === "property.edited" && metadata.revisionId) { const after = byId.get(metadata.revisionId); if (after) changes = diffRevisions(byNumber.get(after.revisionNumber - 1), after); }
+    return { id: log.id, createdAt: log.createdAt, actorName: log.actorName, actorEmail: log.actorEmail, action: log.action, actionLabel: propertyActionLabels[log.action] ?? log.action, reason: metadata.reason ?? null, bulk: Boolean(metadata.bulk), mediaCopied: typeof metadata.mediaCopied === "number" ? metadata.mediaCopied : null, changes };
+  });
 }
 
 export async function bulkArchiveListings(actor: Actor, ids: string[]) {
