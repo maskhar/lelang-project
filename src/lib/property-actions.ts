@@ -1,0 +1,3 @@
+// Label ramah untuk aksi yang tercatat di audit_logs entityType="property" — dipakai popup riwayat
+// aktivitas (dashboard) dan worker notifikasi webhook staf, supaya kata yang dipakai selalu sama.
+export const propertyActionLabels: Record<string, string> = { "property.created": "Properti dibuat", "property.edited": "Revisi disimpan", "property.submit": "Dikirim untuk review", "property.approve": "Dipublikasikan", "property.revision": "Diminta revisi", "property.reject": "Ditolak", "property.archive": "Diarsipkan", "property.unarchive": "Dipulihkan dari arsip", "property.sold": "Ditandai terjual", "property.available": "Dikembalikan tersedia", "property.deleted": "Dihapus permanen" };
