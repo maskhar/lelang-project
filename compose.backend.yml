@@ -18,10 +18,5 @@ services:
       interval: 5s
       timeout: 3s
       retries: 15
-  mailpit:
-    image: axllent/mailpit:v1.27.8
-    ports:
-      - "127.0.0.1:11025:1025"
-      - "127.0.0.1:18025:8025"
 volumes:
   database:

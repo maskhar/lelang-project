@@ -54,12 +54,6 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?Isi GOOGLE_CLIENT_SECRET pada .env.docker.local}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:?Isi GOOGLE_REDIRECT_URI pada .env.docker.local}
       STORAGE_ROOT: /data/storage
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      EMAIL_FROM: ${EMAIL_FROM:-}
-      NOTIFICATION_EMAIL: ${NOTIFICATION_EMAIL:-}
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       WEBHOOK_SECRET_ENC_KEY: ${WEBHOOK_SECRET_ENC_KEY:-}
     volumes:
@@ -93,12 +87,6 @@ services:
       # APP_BASE_URL dipakai worker untuk menyusun url/mapsUrl properti pada payload webhook lead->n8n.
       APP_BASE_URL: ${APP_BASE_URL:?Isi APP_BASE_URL pada .env.docker.local}
       STORAGE_ROOT: /data/storage
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      EMAIL_FROM: ${EMAIL_FROM:-}
-      NOTIFICATION_EMAIL: ${NOTIFICATION_EMAIL:-}
       WEBHOOK_SECRET_ENC_KEY: ${WEBHOOK_SECRET_ENC_KEY:-}
     volumes:
       - ${STORAGE_HOST_PATH:?Isi STORAGE_HOST_PATH pada .env.docker.local}:/data/storage
