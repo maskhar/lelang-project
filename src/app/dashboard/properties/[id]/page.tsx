@@ -3,6 +3,7 @@ import { use, useEffect, useState, type DragEvent } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import PropertyForm, { type ListingFormValue } from "@/components/property-form";
+import { orderAmenities } from "@/lib/amenities";
 import { apiRequest } from "@/components/api-client";
 import { csrfHeaders } from "@/components/csrf";
 import { FormError } from "@/components/form-error";
@@ -12,7 +13,7 @@ import PropertyAvailability from "@/components/property-availability";
 import styles from "../../dashboard-shell.module.css";
 
 type Media = { id: string; status: string; isCover: boolean; sortOrder: number };
-type Revision = { id: string; revisionNumber: number; status: string; title: string; description: string; address: string | null; landAreaM2: number; buildingAreaM2: number; bedroomCount: number; auctionStartsAt: string | null; auctionEndsAt: string | null; listingSnapshot: Pick<ListingFormValue, "city" | "province" | "type" | "askingPrice" | "saleMode"> & Partial<Pick<ListingFormValue, "address" | "latitude" | "longitude">> | null };
+type Revision = { id: string; revisionNumber: number; status: string; title: string; description: string; address: string | null; landAreaM2: number; buildingAreaM2: number; bedroomCount: number; amenities: string[] | null; auctionStartsAt: string | null; auctionEndsAt: string | null; listingSnapshot: Pick<ListingFormValue, "city" | "province" | "type" | "askingPrice" | "saleMode"> & Partial<Pick<ListingFormValue, "address" | "latitude" | "longitude">> | null };
 type Detail = { property: { id: string; sku: string; version: number; publicationStatus: string; availabilityStatus: string; publishedRevisionId: string | null }; revisions: Revision[]; media: Media[]; permissions: { canMarkSold: boolean } };
 export default function EditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -60,7 +61,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
   function handleFileDrop(event: DragEvent<HTMLLabelElement>) { event.preventDefault(); if (mediaLocked || busy) return; const files = Array.from(event.dataTransfer.files); void upload(files); }
   function handleMediaDrop(event: DragEvent<HTMLElement>, targetId: string) { event.preventDefault(); const sourceId = draggedMediaId; setDraggedMediaId(null); if (!sourceId || sourceId === targetId || mediaLocked || busy) return; const ids = media.map((photo) => photo.id); const sourceIndex = ids.indexOf(sourceId); const targetIndex = ids.indexOf(targetId); if (sourceIndex < 0 || targetIndex < 0) return; ids.splice(sourceIndex, 1); ids.splice(targetIndex, 0, sourceId); void order(ids); }
   const media = detail?.media.filter((item) => item.status !== "deleted").sort((left, right) => left.sortOrder - right.sortOrder) || [];
-  const initial = revision?.listingSnapshot ? { ...revision.listingSnapshot, address: revision.address ?? revision.listingSnapshot.address ?? "", latitude: revision.listingSnapshot.latitude ?? null, longitude: revision.listingSnapshot.longitude ?? null, sku: detail?.property.sku, title: revision.title, description: revision.description, landAreaM2: revision.landAreaM2, buildingAreaM2: revision.buildingAreaM2, bedroomCount: revision.bedroomCount, auctionStartsAt: revision.auctionStartsAt, auctionEndsAt: revision.auctionEndsAt } : undefined;
+  const initial = revision?.listingSnapshot ? { ...revision.listingSnapshot, address: revision.address ?? revision.listingSnapshot.address ?? "", latitude: revision.listingSnapshot.latitude ?? null, longitude: revision.listingSnapshot.longitude ?? null, sku: detail?.property.sku, title: revision.title, description: revision.description, landAreaM2: revision.landAreaM2, buildingAreaM2: revision.buildingAreaM2, bedroomCount: revision.bedroomCount, amenities: orderAmenities(revision.amenities ?? []), auctionStartsAt: revision.auctionStartsAt, auctionEndsAt: revision.auctionEndsAt } : undefined;
   const mediaLabels: Record<string, string> = { pending: "Menunggu verifikasi", ready: "Siap", rejected: "Ditolak" };
   return (
     <>

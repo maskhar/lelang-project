@@ -42,6 +42,19 @@ describe("listingInput", () => {
   it("rejects unknown property type", () => {
     assert.throws(() => listingInput.parse({ ...validListing, type: "Kapal" }));
   });
+
+  it("defaults amenities to an empty list", () => {
+    assert.deepEqual(listingInput.parse(validListing).amenities, []);
+  });
+
+  it("deduplicates amenities and orders them by catalog", () => {
+    const value = listingInput.parse({ ...validListing, amenities: ["furnished", "bandara", "bank", "bandara"] });
+    assert.deepEqual(value.amenities, ["bandara", "bank", "furnished"]);
+  });
+
+  it("rejects unknown amenity keys", () => {
+    assert.equal(listingInput.safeParse({ ...validListing, amenities: ["kolam_renang"] }).success, false);
+  });
 });
 
 describe("leadInput", () => {

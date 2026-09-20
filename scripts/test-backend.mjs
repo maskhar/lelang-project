@@ -21,7 +21,7 @@ async function main() {
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   const profileId = randomUUID();
   const actor = { profileId, email: "backend-test@example.invalid", name: "Backend Test", roles: ["admin"] };
-  const listing = { title: "Rumah pengujian backend", description: "Deskripsi valid untuk pengujian aturan domain backend.", type: "Rumah", city: "Malang", province: "Jawa Timur", saleMode: "direct_sale", askingPrice: 750000000, landAreaM2: 100, buildingAreaM2: 80, bedroomCount: 3, auctionStartsAt: null, auctionEndsAt: null };
+  const listing = { title: "Rumah pengujian backend", description: "Deskripsi valid untuk pengujian aturan domain backend.", type: "Rumah", city: "Malang", province: "Jawa Timur", saleMode: "direct_sale", askingPrice: 750000000, landAreaM2: 100, buildingAreaM2: 80, bedroomCount: 3, amenities: ["bank", "bandara"], auctionStartsAt: null, auctionEndsAt: null };
   let propertyId;
   let hookServer;
   const storage = await mkdtemp(path.join(os.tmpdir(), "lelang-backend-test-"));
@@ -56,6 +56,9 @@ async function main() {
     const approved = await transitionListing(actor, propertyId, { version: 3, action: "approve" });
     assert.equal(approved.publicationStatus, "published");
     assert.equal((await publicListing(created.property.slug)).askingPrice, listing.askingPrice);
+    // Fasilitas disimpan per revisi dan diurutkan sesuai katalog, bukan sesuai urutan input.
+    assert.deepEqual((await client.query("select amenities from app.property_revisions where id=$1", [edited.revision.id])).rows[0].amenities, ["bandara", "bank"]);
+    assert.deepEqual((await publicListing(created.property.slug)).amenities, ["bandara", "bank"]);
     const page = await catalog(new URLSearchParams({ city: "Malang", sort: "price_asc", limit: "1" }));
     assert.equal(page.items.length, 1); assert.equal(page.items[0].id, propertyId);
     await assert.rejects(catalog(new URLSearchParams({ cursor: "invalid" })), (error) => error.code === "INVALID_CURSOR");

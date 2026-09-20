@@ -2,6 +2,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { propertyTypes } from "@/lib/properties";
 import { indonesianCities, cityProvinceByName } from "@/lib/indonesia-cities";
+import { amenityCatalog, amenityCategories } from "@/lib/amenities";
 import { listingInput } from "@/server/properties/validation";
 import type { z } from "zod";
 import { FormError } from "./form-error";
@@ -38,7 +39,7 @@ export default function PropertyForm({ initial, onSave, disabled = false, status
       if (coordinateValue && !parsedCoordinates) throw new Error("Koordinat harus memakai format latitude, longitude.");
       const latitude = parsedCoordinates ? Number(parsedCoordinates[1]) : null;
       const longitude = parsedCoordinates ? Number(parsedCoordinates[2]) : null;
-      const value = listingInput.parse({ sku: rawSku || undefined, title: fields.get("title"), description: fields.get("description"), type: fields.get("type"), city: city.trim(), province, address: String(fields.get("address") || "").trim(), latitude, longitude, saleMode: mode, askingPrice: Number(fields.get("askingPrice")), landAreaM2: Number(fields.get("landAreaM2")), buildingAreaM2: Number(fields.get("buildingAreaM2")), bedroomCount: Number(fields.get("bedroomCount")), auctionStartsAt: mode === "auction" ? new Date(String(fields.get("auctionStartsAt"))).toISOString() : null, auctionEndsAt: mode === "auction" ? new Date(String(fields.get("auctionEndsAt"))).toISOString() : null });
+      const value = listingInput.parse({ sku: rawSku || undefined, title: fields.get("title"), description: fields.get("description"), type: fields.get("type"), city: city.trim(), province, address: String(fields.get("address") || "").trim(), latitude, longitude, saleMode: mode, askingPrice: Number(fields.get("askingPrice")), landAreaM2: Number(fields.get("landAreaM2")), buildingAreaM2: Number(fields.get("buildingAreaM2")), bedroomCount: Number(fields.get("bedroomCount")), auctionStartsAt: mode === "auction" ? new Date(String(fields.get("auctionStartsAt"))).toISOString() : null, auctionEndsAt: mode === "auction" ? new Date(String(fields.get("auctionEndsAt"))).toISOString() : null, amenities: fields.getAll("amenities").map(String) });
       await onSave(value);
     } catch (reason) { setError(reason); }
     finally { setSaving(false); }
@@ -62,5 +63,11 @@ export default function PropertyForm({ initial, onSave, disabled = false, status
     <label>Luas bangunan (m²)<input name="buildingAreaM2" type="number" min={0} max={1000000000} step={1} required defaultValue={initial?.buildingAreaM2 ?? 0} /></label>
     {mode === "auction" && <><label>Mulai (zona waktu perangkat)<input name="auctionStartsAt" type="datetime-local" required defaultValue={localDateTime(initial?.auctionStartsAt ?? null)} /></label><label>Selesai (zona waktu perangkat)<input name="auctionEndsAt" type="datetime-local" required defaultValue={localDateTime(initial?.auctionEndsAt ?? null)} /></label></>}
     <label className={styles.full}>Deskripsi<textarea name="description" required minLength={20} maxLength={4000} defaultValue={initial?.description} /></label>
+    {/* Checkbox tanpa atribut required: field wajib-isi di dalam form ini pernah membuat submit diblokir browser tanpa pesan. */}
+    <div className={styles.full + " " + styles.amenityPicker}>
+      <strong>Akses &amp; fasilitas</strong>
+      <p className={styles.fieldHint}>Centang yang benar-benar tersedia di sekitar aset. Item yang tidak dicentang tidak ditampilkan di halaman publik.</p>
+      {amenityCategories.map((category) => <fieldset key={category}><legend>{category}</legend>{amenityCatalog.filter((item) => item.category === category).map((item) => <label key={item.key}><input type="checkbox" name="amenities" value={item.key} defaultChecked={initial?.amenities?.includes(item.key)} />{item.label}</label>)}</fieldset>)}
+    </div>
   </fieldset><FormError error={error} /><button className="button dark" disabled={saving || disabled}>{saving ? "Menyimpan…" : "Simpan draft"}</button></form>;
 }

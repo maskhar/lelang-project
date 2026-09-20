@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { cityProvinceByName } from "@/lib/indonesia-cities";
 import { propertyTypes } from "@/lib/properties";
+import { amenityKeys, orderAmenities } from "@/lib/amenities";
 
 export const listingInput = z.object({
   sku: z.string().trim().toUpperCase().regex(/^LP-[A-Z0-9]{6,32}$/, "SKU harus memakai format LP- diikuti 6–32 huruf atau angka.").optional(),
@@ -19,6 +20,7 @@ export const listingInput = z.object({
   bedroomCount: z.number().int().min(0).max(1000),
   auctionStartsAt: z.iso.datetime({ offset: true }).nullable().default(null),
   auctionEndsAt: z.iso.datetime({ offset: true }).nullable().default(null),
+  amenities: z.array(z.enum(amenityKeys)).max(amenityKeys.length).default([]).transform(orderAmenities),
 }).strict().superRefine((value, context) => {
   if (cityProvinceByName.get(value.city.toLocaleLowerCase("id-ID")) !== value.province) context.addIssue({ code: "custom", message: "Wilayah tidak valid." });
   if (value.saleMode === "auction" && (!value.auctionStartsAt || !value.auctionEndsAt || Date.parse(value.auctionEndsAt) <= Date.parse(value.auctionStartsAt))) context.addIssue({ code: "custom", message: "Jadwal lelang tidak valid." });

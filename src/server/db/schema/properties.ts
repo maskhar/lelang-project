@@ -40,6 +40,7 @@ export const propertyRevisions = appSchema.table("property_revisions", {
   description: text("description").notNull(),
   address: text("address"),
   listingSnapshot: jsonb("listing_snapshot").$type<{ city: string; province: string; address?: string; latitude?: number | null; longitude?: number | null; saleMode: "auction" | "direct_sale"; type: string; askingPrice: number }>(),
+  amenities: jsonb("amenities").$type<string[]>().notNull().default([]),
   landAreaM2: integer("land_area_m2").notNull().default(0),
   buildingAreaM2: integer("building_area_m2").notNull().default(0),
   bedroomCount: smallint("bedroom_count").notNull().default(0),
