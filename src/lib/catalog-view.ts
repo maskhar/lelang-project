@@ -1,5 +1,6 @@
 export type CatalogView = {
-  id: string; mode: "lelang" | "langsung" | "terjual"; title: string; type: string; city: string;
+  // id memakai slug karena dipakai untuk rute /properti/[id]; propertyId menyimpan UUID asli yang dibutuhkan API (mis. watchlist).
+  id: string; propertyId: string; mode: "lelang" | "langsung" | "terjual"; title: string; type: string; city: string;
   land: number; build: number; beds: number; price: number; desc: string;
   imageUrl?: string; imageUrls?: string[]; createdAt?: string; auctionEndsAt?: string | null;
   bid?: number; bidders?: number; duration?: number;
@@ -13,5 +14,5 @@ export type PublicListing = {
 };
 export function catalogView(item: PublicListing): CatalogView {
   const images = item.media?.map((media) => "/api/v1/media/" + media.id) || [];
-  return { id: item.slug, mode: item.availabilityStatus === "sold" ? "terjual" : item.saleMode === "auction" ? "lelang" : "langsung", title: item.title, type: item.type, city: [item.location?.city, item.location?.province].filter(Boolean).join(", "), land: item.landAreaM2, build: item.buildingAreaM2, beds: item.bedroomCount, price: item.askingPrice, desc: item.description, imageUrls: images, imageUrl: images[0], createdAt: item.publishedAt ? new Date(item.publishedAt).toISOString() : undefined, auctionEndsAt: item.auctionEndsAt ? new Date(item.auctionEndsAt).toISOString() : null };
+  return { id: item.slug, propertyId: item.id, mode: item.availabilityStatus === "sold" ? "terjual" : item.saleMode === "auction" ? "lelang" : "langsung", title: item.title, type: item.type, city: [item.location?.city, item.location?.province].filter(Boolean).join(", "), land: item.landAreaM2, build: item.buildingAreaM2, beds: item.bedroomCount, price: item.askingPrice, desc: item.description, imageUrls: images, imageUrl: images[0], createdAt: item.publishedAt ? new Date(item.publishedAt).toISOString() : undefined, auctionEndsAt: item.auctionEndsAt ? new Date(item.auctionEndsAt).toISOString() : null };
 }

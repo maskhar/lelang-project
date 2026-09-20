@@ -404,7 +404,55 @@ input[type="radio"] {
   grid-template-columns: repeat(3, 1fr);
   gap: 22px;
 }
+/* Kepadatan kolom dipilih pembaca lewat dropdown "Tampilan" dan hanya berlaku di desktop.
+   Wajib dikurung media query: selector atribut lebih spesifik daripada .property-grid polos,
+   jadi tanpa kurungan ini ia akan menimpa aturan 2 kolom di breakpoint tablet dan ponsel. */
+@media (min-width: 1001px) {
+  .property-grid[data-density="medium"] {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+  }
+  .property-grid[data-density="medium"] .property-visual {
+    height: 150px;
+  }
+  .property-grid[data-density="medium"] .property-body {
+    padding: 15px;
+  }
+  .property-grid[data-density="medium"] .property-body h2 {
+    font-size: 17px;
+    min-height: 46px;
+    margin: 7px 0 12px;
+  }
+  .property-grid[data-density="small"] {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+  }
+  .property-grid[data-density="small"] .property-visual {
+    height: 124px;
+  }
+  .property-grid[data-density="small"] .property-body {
+    padding: 13px;
+  }
+  .property-grid[data-density="small"] .property-body h2 {
+    font-size: 15px;
+    min-height: 40px;
+    margin: 6px 0 10px;
+  }
+  .property-grid[data-density="small"] .meta {
+    gap: 10px;
+    font-size: 11px;
+    padding: 9px 0;
+    margin-bottom: 12px;
+  }
+  .property-grid[data-density="small"] .price-row strong {
+    font-size: 19px;
+  }
+  .property-grid[data-density="small"] .card-actions {
+    margin-top: 12px;
+  }
+}
 .property-card {
+  position: relative;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
@@ -419,6 +467,17 @@ input[type="radio"] {
 .property-card:hover {
   transform: translateY(-3px);
   border-color: var(--gold);
+}
+/* Link dibentangkan menutupi seluruh kartu; tombol aksi diangkat di atasnya lewat z-index
+   supaya klik di gambar atau badan kartu membuka detail, sedangkan klik tombol tidak. */
+.property-card-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.property-card-link:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: -3px;
 }
 .property-visual {
   height: 175px;
@@ -540,18 +599,50 @@ input[type="radio"] {
     monospace;
   text-align: right;
 }
-.card-button {
-  border: 0;
-  border-radius: 4px;
-  background: var(--ink);
-  color: white;
-  width: 100%;
-  min-height: 44px;
-  font-size: 13px;
-  font-weight: 600;
+.card-actions {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
   margin-top: 16px;
+}
+/* 44px mengikuti min-height global tombol; kalau lebih kecil, lingkarannya berubah jadi lonjong. */
+.card-icon-btn {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: white;
+  color: var(--ink);
   display: grid;
   place-items: center;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    color 0.2s;
+}
+.card-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.card-icon-btn:hover:not(:disabled) {
+  border-color: var(--gold);
+  background: #fff8e9;
+}
+.card-icon-btn.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: white;
+}
+.card-icon-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.card-icon-btn:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
 }
 .empty {
   text-align: center;
@@ -859,14 +950,61 @@ footer > small {
   .chips button {
     padding: 8px 16px;
   }
+  /* Ponsel selalu 2 kolom, apa pun pilihan "Tampilan" di desktop; kartu ikut dikecilkan agar muat. */
   .property-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
   }
   .property-visual {
-    height: 195px;
+    height: 122px;
+  }
+  .property-visual > svg {
+    width: 40px;
+    height: 40px;
+  }
+  .property-visual > small {
+    bottom: 8px;
+    right: 8px;
+    padding: 3px 7px;
+    font-size: 10px;
+  }
+  .badge {
+    left: 8px;
+    top: 8px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+  .property-body {
+    padding: 12px;
   }
   .property-body h2 {
     min-height: 0;
+    font-size: 15px;
+    margin: 6px 0 10px;
+  }
+  .meta {
+    gap: 9px;
+    font-size: 11px;
+    padding: 8px 0;
+    margin-bottom: 10px;
+  }
+  .price-row {
+    flex-direction: column;
+    align-items: start;
+    gap: 4px;
+  }
+  .price-row strong {
+    font-size: 18px;
+  }
+  .price-row time {
+    text-align: left;
+  }
+  .card-actions {
+    margin-top: 12px;
+  }
+  .card-icon-btn svg {
+    width: 16px;
+    height: 16px;
   }
   .listing-toolbar {
     align-items: start;

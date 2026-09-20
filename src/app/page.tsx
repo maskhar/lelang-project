@@ -2,17 +2,37 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { formatRupiah } from "@/lib/currency";
 import { propertyTypes } from "@/lib/properties";
 import { catalogView, type CatalogView as Property, type PublicListing } from "@/lib/catalog-view";
-import { apiRequest } from "@/components/api-client";
+import { ApiClientError, apiRequest } from "@/components/api-client";
+import { csrfHeaders } from "@/components/csrf";
 
 function money(value: number) { return formatRupiah(value); }
 function remaining(end: number, now: number) { const diff = end - now; if (diff <= 0) return "Lelang berakhir"; const hours = Math.floor(diff / 3600000); const minutes = Math.floor((diff % 3600000) / 60000); return hours >= 24 ? `${Math.floor(hours / 24)} hari ${hours % 24} jam` : `${hours} jam ${minutes} menit`; }
 type CatalogResponse = { items: PublicListing[]; nextCursor: string | null };
+type Density = "large" | "medium" | "small";
+const densityKey = "catalog-grid-density";
+// Pola sama dengan PropertyActions di halaman detail: dengar event storage (tab lain) plus event kustom
+// (tab yang sama, karena storage tidak menyala untuk penulisnya sendiri).
+function subscribeDensity(listener: () => void) {
+  window.addEventListener("storage", listener);
+  window.addEventListener("catalog-density", listener);
+  return () => { window.removeEventListener("storage", listener); window.removeEventListener("catalog-density", listener); };
+}
+function readDensity(): Density { try { const value = localStorage.getItem(densityKey); return value === "medium" || value === "small" ? value : "large"; } catch { return "large"; } }
+function writeDensity(value: Density) { try { localStorage.setItem(densityKey, value); window.dispatchEvent(new Event("catalog-density")); } catch { /* penyimpanan diblokir: pilihan berlaku untuk sesi ini saja */ } }
+
+function CardIcon({ name, filled = false }: { name: "share" | "like"; filled?: boolean }) {
+  const paths = {
+    share: <><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.6 10.5 6.8-4m-6.8 7 6.8 4" /></>,
+    like: <path d="M12 20.3 4.3 12.8a4.6 4.6 0 0 1 0-6.6 4.8 4.8 0 0 1 6.7 0l1 1 1-1a4.8 4.8 0 0 1 6.7 0 4.6 4.6 0 0 1 0 6.6Z" />,
+  };
+  return <svg viewBox="0 0 24 24" aria-hidden="true" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
 
 function PropertyIcon({ type }: { type: string }) {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
@@ -49,6 +69,39 @@ function CatalogHome() {
   const [authenticated, setAuthenticated] = useState(false);
   useEffect(() => { const controller = new AbortController(); fetch("/api/v1/auth/session", { cache: "no-store", signal: controller.signal }).then((response) => response.json()).then((body: { data?: { authenticated?: boolean } }) => setAuthenticated(body.data?.authenticated === true)).catch(() => undefined); return () => controller.abort(); }, []);
   const [notice, setNotice] = useState("");
+  // Server snapshot konstan "large" supaya markup awal cocok dengan hasil render server (hindari mismatch hydration).
+  const density = useSyncExternalStore<Density>(subscribeDensity, readDensity, () => "large");
+  const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
+  const [likeBusy, setLikeBusy] = useState<string | null>(null);
+  useEffect(() => {
+    if (!authenticated) return;
+    const controller = new AbortController();
+    // Akun staf tanpa peran buyer mendapat 403 di sini; diabaikan diam-diam, pesannya muncul saat tombol ditekan.
+    apiRequest<{ propertyId: string }[]>("/api/v1/watchlist", { cache: "no-store", signal: controller.signal })
+      .then((items) => { if (!controller.signal.aborted) setWatchlist(new Set(items.map((item) => item.propertyId))); })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [authenticated]);
+  async function toggleLike(propertyId: string) {
+    if (!authenticated) { router.push("/login"); return; }
+    if (likeBusy) return;
+    const liked = watchlist.has(propertyId);
+    setLikeBusy(propertyId);
+    try {
+      await apiRequest("/api/v1/watchlist", { method: liked ? "DELETE" : "POST", headers: { "Content-Type": "application/json", ...await csrfHeaders() }, body: JSON.stringify({ propertyId }) });
+      setWatchlist((current) => { const next = new Set(current); if (liked) next.delete(propertyId); else next.add(propertyId); return next; });
+      setNotice(liked ? "Properti dihapus dari daftar simpanan." : "Properti disimpan ke akun Anda.");
+    } catch (error) {
+      setNotice(error instanceof ApiClientError && error.code === "FORBIDDEN" ? "Simpan properti hanya tersedia untuk akun pembeli." : "Gagal memperbarui simpanan. Coba lagi.");
+    } finally { setLikeBusy(null); }
+  }
+  async function shareProperty(item: Property) {
+    const url = window.location.origin + "/properti/" + item.id;
+    try {
+      if (navigator.share) await navigator.share({ title: item.title, url });
+      else { await navigator.clipboard.writeText(url); setNotice("Tautan properti disalin."); }
+    } catch (error) { if (!(error instanceof Error && error.name === "AbortError")) setNotice("Gagal membagikan. Salin alamat properti dari browser."); }
+  }
   const requestController = useRef<AbortController | null>(null);
   const moreLock = useRef(false);
   const [loadedKey, setLoadedKey] = useState("");
@@ -147,15 +200,18 @@ function CatalogHome() {
 
       <section className="property-section" id="properti">
         <div className="chips" aria-label="Filter jenis properti"><button className={!type ? "active" : ""} onClick={() => setType("")}>Semua</button>{propertyTypes.map((item) => <button className={type === item ? "active" : ""} onClick={() => setType(item)} key={item}>{item}</button>)}</div>
-        <div className="listing-toolbar"><div className="tabs"><button className={!mode ? "active" : ""} onClick={() => setMode("")}>Semua</button><button className={mode === "lelang" ? "active" : ""} onClick={() => setMode("lelang")}>Lelang</button><button className={mode === "langsung" ? "active" : ""} onClick={() => setMode("langsung")}>Jual Langsung</button></div><label className="sort">Urutkan <select value={sort} onChange={(event) => setSort(event.target.value)}><option value="terbaru">Terbaru</option><option value="harga-asc">Harga terendah</option><option value="harga-desc">Harga tertinggi</option><option value="berakhir">Segera berakhir</option></select></label></div>
+        <div className="listing-toolbar"><div className="tabs"><button className={!mode ? "active" : ""} onClick={() => setMode("")}>Semua</button><button className={mode === "lelang" ? "active" : ""} onClick={() => setMode("lelang")}>Lelang</button><button className={mode === "langsung" ? "active" : ""} onClick={() => setMode("langsung")}>Jual Langsung</button></div><label className="sort">Urutkan <select value={sort} onChange={(event) => setSort(event.target.value)}><option value="terbaru">Terbaru</option><option value="harga-asc">Harga terendah</option><option value="harga-desc">Harga tertinggi</option><option value="berakhir">Segera berakhir</option></select></label><label className="sort">Tampilan <select value={density} onChange={(event) => writeDensity(event.target.value as Density)}><option value="large">Besar (3 kolom)</option><option value="medium">Sedang (4 kolom)</option><option value="small">Kecil (5 kolom)</option></select></label></div>
         <p className="result-count" aria-live="polite">{pending ? "Memuat properti…" : `Menampilkan ${catalogProperties.length} properti yang dimuat`}</p>
         {catalogError && !pending && <div className="empty" role="alert"><p>{catalogError}</p><button type="button" className="button dark" onClick={() => { setLoading(true); setRetryCount((count) => count + 1); }}>Coba lagi</button></div>}
-        {!pending && catalogProperties.length ? <><div className="property-grid">{catalogProperties.map((item) => {
+        {!pending && catalogProperties.length ? <><div className="property-grid" data-density={density}>{catalogProperties.map((item) => {
           const end = item.auctionEndsAt ? Date.parse(item.auctionEndsAt) : startedAt;
-          return <Link className="property-card" href={`/properti/${item.id}`} key={item.id}>
+          const liked = watchlist.has(item.propertyId);
+          // Link dibentangkan menutupi kartu (bukan membungkusnya) supaya tombol share/like tidak bersarang di dalam anchor.
+          return <article className="property-card" key={item.id}>
+            <Link className="property-card-link" href={`/properti/${item.id}`} aria-label={`Lihat detail ${item.title}`} />
             <div className={`property-visual type-${item.type.toLowerCase()}${(item.imageUrls?.[0] || item.imageUrl) ? " has-image" : ""}`} style={(item.imageUrls?.[0] || item.imageUrl) ? { backgroundImage: `url(${item.imageUrls?.[0] || item.imageUrl})` } : undefined}><span className={`badge ${item.mode}`}>{item.mode === "lelang" ? "Lelang Aktif" : item.mode === "langsung" ? "Jual Langsung" : "Terjual"}</span><PropertyIcon type={item.type} /><small>{item.type}</small></div>
-            <div className="property-body"><span className="location">⌖ {item.city}</span><h2>{item.title}</h2><div className="meta">{item.land > 0 && <span>LT {item.land} m²</span>}{item.build > 0 && <span>LB {item.build} m²</span>}{item.beds > 0 && <span>{item.beds} KT</span>}</div><div className="price-row"><div><small>{item.mode === "lelang" ? "Harga acuan" : "Harga"}</small><strong>{money(item.price)}</strong></div>{item.mode === "lelang" && <time dateTime={item.auctionEndsAt || undefined}>{item.auctionEndsAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(new Date(end)) + " WIB" : "Jadwal belum tersedia"}{now > 0 && item.auctionEndsAt && <><br />{remaining(end, now)}</>}</time>}</div><span className="card-button">Lihat Detail</span></div>
-          </Link>;
+            <div className="property-body"><span className="location">⌖ {item.city}</span><h2>{item.title}</h2><div className="meta">{item.land > 0 && <span>LT {item.land} m²</span>}{item.build > 0 && <span>LB {item.build} m²</span>}{item.beds > 0 && <span>{item.beds} KT</span>}</div><div className="price-row"><div><small>{item.mode === "lelang" ? "Harga acuan" : "Harga"}</small><strong>{money(item.price)}</strong></div>{item.mode === "lelang" && <time dateTime={item.auctionEndsAt || undefined}>{item.auctionEndsAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(new Date(end)) + " WIB" : "Jadwal belum tersedia"}{now > 0 && item.auctionEndsAt && <><br />{remaining(end, now)}</>}</time>}</div><div className="card-actions"><button type="button" className="card-icon-btn" aria-label={`Bagikan ${item.title}`} title="Bagikan" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void shareProperty(item); }}><CardIcon name="share" /></button><button type="button" className={liked ? "card-icon-btn active" : "card-icon-btn"} aria-pressed={liked} aria-label={liked ? `Hapus ${item.title} dari simpanan` : `Simpan ${item.title}`} title={liked ? "Hapus dari simpanan" : "Simpan"} disabled={likeBusy === item.propertyId} onClick={(event) => { event.preventDefault(); event.stopPropagation(); void toggleLike(item.propertyId); }}><CardIcon name="like" filled={liked} /></button></div></div>
+          </article>;
         })}</div>{nextCursor && <div className="catalog-more"><button type="button" className="button dark" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "Memuat…" : "Muat lebih banyak"}</button></div>}</> : !pending && !catalogError && <div className="empty"><h2>Belum ada properti yang cocok</h2><p>Ubah kata kunci atau filter pencarian.</p></div>}
       </section>
 
