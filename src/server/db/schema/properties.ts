@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import { bigint, boolean, check, index, integer, jsonb, smallint, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import { availabilityStatus, mediaStatus, publicationStatus, reviewStatus, saleMode } from "./enums";
 import { appSchema } from "./namespace";
@@ -79,6 +79,10 @@ export const propertyMedia = appSchema.table("property_media", {
   // memakai index ini untuk menghitung pemakai sebuah path sebelum file dihapus dari disk.
   index("property_media_object_idx").on(table.bucket, table.objectPath),
   index("property_media_revision_idx").on(table.revisionId, table.status, table.sortOrder),
+  // Urutan halaman media library: "created_at desc, id desc" atas seluruh tabel sebelum limit/offset.
+  // id ikut karena ia tiebreaker urutan itu; tanpa id di index Postgres tetap harus menyortir baris
+  // yang created_at-nya sama.
+  index("property_media_created_idx").on(desc(table.createdAt), desc(table.id)),
 ]);
 
 
