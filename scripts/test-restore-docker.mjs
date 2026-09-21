@@ -35,7 +35,8 @@ try {
   const client = new pg.Client({ connectionString: url }); await client.connect();
   const result = await client.query("select to_regclass('app.properties') properties,to_regclass('app.user_sessions') sessions,to_regclass('app.outbox_events') outbox"); await client.end();
   if (!result.rows[0].properties || !result.rows[0].sessions || !result.rows[0].outbox) throw new Error("Restore verification failed.");
-  const listing = spawnSync("tar", ["-tzf", path.join(root, storageArchive)], { encoding: "utf8", windowsHide: true, maxBuffer: 200 * 1024 * 1024 });
+  // --force-local: sama seperti backup-docker.mjs, tanpa itu GNU tar mengira "I:/..." host remote.
+  const listing = spawnSync("tar", ["--force-local", "-tzf", path.join(root, storageArchive)], { encoding: "utf8", windowsHide: true, maxBuffer: 200 * 1024 * 1024 });
   if (listing.status !== 0 || !listing.stdout.trim()) throw new Error("Arsip storage tidak terbaca atau kosong.");
   console.log("PASS: dump produksi restored ke PostgreSQL terisolasi, tabel inti terverifikasi, arsip storage terbaca.");
 } finally { if (started) run(["stop", name]); }

@@ -36,8 +36,11 @@ async function dumpDatabase() {
 async function archiveStorage() {
   // Arsip penuh setiap kali dijalankan (bukan incremental) — sederhana dan cukup untuk volume
   // dokumen/foto properti saat ini. Jadwalkan lewat Task Scheduler Windows di host operator.
-  const result = spawnSync("tar", ["-czf", storageArchive, "-C", path.dirname(storageRoot), path.basename(storageRoot)], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-  if (result.status !== 0) throw new Error("Arsip storage gagal.");
+  //
+  // --force-local wajib di Windows: tanpa itu GNU tar membaca "I:/..." sebagai host:path remote dan
+  // gagal dengan "Cannot connect to I: resolve failed" — backup produksi diam-diam tidak pernah jadi.
+  const result = spawnSync("tar", ["--force-local", "-czf", storageArchive, "-C", path.dirname(storageRoot), path.basename(storageRoot)], { windowsHide: true, stdio: ["ignore", "pipe", "inherit"] });
+  if (result.status !== 0) throw new Error("Arsip storage gagal; pesan tar di atas.");
   await chmod(storageArchive, 0o600);
 }
 
