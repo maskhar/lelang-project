@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthConfig } from "@/server/auth/config";
 import { issueCsrf } from "@/server/auth/csrf";
 import { consumeGoogleTransaction, googleCookieName, verifyGoogleCode } from "@/server/auth/google";
-import { AuthHttpError, authErrorResponse } from "@/server/auth/http";
+import { AuthHttpError } from "@/server/auth/http";
 import { limitGoogleCallback, limitGoogleCallbackByIp } from "@/server/auth/rate-limit";
 import { loginWithGoogle } from "@/server/auth/service";
 import { clientFingerprint, resolveClientIp, sessionCookieName } from "@/server/auth/session";
@@ -27,7 +27,15 @@ export async function GET(request: NextRequest) {
     response.cookies.set(sessionCookieName, result.token, { httpOnly: true, secure: getAuthConfig().secure, sameSite: "lax", path: "/", expires: result.expiresAt });
     issueCsrf(response, result.token);
   } catch (error) {
-    response = authErrorResponse(error);
+    // Callback adalah navigasi browser, bukan panggilan fetch: balasan JSON membuat pengguna
+    // terdampar di layar mentah tanpa jalan kembali. Transaksi OAuth sudah dihapus di atas
+    // (sekali pakai, demi anti-replay), jadi tombol back hanya menghasilkan INVALID_OAUTH_STATE.
+    // Kembalikan ke /login dengan kode error supaya halaman bisa menjelaskan dan menawarkan ulang.
+    const failure = error instanceof AuthHttpError ? error : new AuthHttpError(503, "AUTH_UNAVAILABLE", "Layanan autentikasi belum tersedia.");
+    console.error(JSON.stringify({ event: "auth.google.callback.failure", code: failure.code, status: failure.status }));
+    const destination = new URL("/login", getAuthConfig().origin);
+    destination.searchParams.set("error", failure.code);
+    response = NextResponse.redirect(destination);
   }
   response.cookies.set(googleCookieName, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "lax", path: "/api/v1/auth/google", maxAge: 0 });
   response.headers.set("Cache-Control", "no-store");

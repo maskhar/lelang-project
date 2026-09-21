@@ -19,6 +19,7 @@
 .google{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:48px;border:1px solid var(--line);border-radius:8px;background:white;color:var(--ink);font-weight:600;font-size:15px;text-decoration:none;transition:background-color .15s ease,border-color .15s ease}
 .google:hover,.google:focus-visible{background:var(--paper);border-color:var(--gold)}
 .footnote{margin:22px 0 0;font-size:12px;color:var(--muted)}
+.alert{margin:0 0 18px;padding:12px 14px;border:1px solid #e2b4b4;border-radius:8px;background:#fdf3f3;color:#8a2020;font-size:13px;line-height:1.5;text-align:left}
 .devLogin{margin:22px 0 0;padding:16px 14px 14px;border:1px dashed #c8a24a;border-radius:10px;background:#fffaf0;text-align:left}
 .devLoginLabel{margin:0 0 10px;font-size:11px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#8a6a15}
 .devLoginGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:8px}

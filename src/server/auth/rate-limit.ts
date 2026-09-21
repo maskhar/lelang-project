@@ -43,8 +43,14 @@ export async function limitGoogleCallbackByIp(ip: string | null) {
 // Pendaftaran mandiri (profile baru + role buyer) membuka permukaan abuse baru: kuota terpisah
 // dari login supaya banjir akun baru tidak mengunci login akun lama, dan sebaliknya. Key per-IP
 // memakai ipHash yang sudah dihitung callback (bukan IP mentah), sama seperti user_sessions.
-const signupPerHour = 20;
-const signupPerIpPerHour = 3;
+//
+// Kuota global adalah pagar terakhir, bukan pagar utama: kalau reverse proxy tidak menyetel
+// X-Forwarded-For maka ipHash null dan kuota per-IP dilewati, sehingga satu sumber bisa
+// menghabiskan kuota global dan mengunci pendaftaran semua orang. Angka global dibuat longgar
+// (situs publik, pendaftaran buyer wajar terjadi beberapa ratus per jam); pengetatan sebenarnya
+// ada di kuota per-IP yang tetap ketat.
+const signupPerHour = 200;
+const signupPerIpPerHour = 5;
 
 export async function limitGoogleSignup(executor: Executor, ipHash: string | null) {
   const message = "Pendaftaran akun baru sedang dibatasi. Coba lagi nanti.";
