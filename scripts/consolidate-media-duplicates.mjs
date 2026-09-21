@@ -1,7 +1,9 @@
 // One-off: satukan file foto yang isinya identik di dalam satu properti jadi satu file fisik, lalu hapus
 // salinannya. Sebelum 0016, editListing() menggandakan seluruh foto tiap kali properti diedit (object_path unik
-// per baris), jadi 52 properti memakan 1663 file / 510 MB untuk hanya 534 isi gambar berbeda. Kodenya sudah
-// berhenti menggandakan; skrip ini membereskan sisanya.
+// per baris): development memakan 1663 file / 510 MB untuk 534 isi gambar berbeda, produksi 2670 file / 602 MB
+// untuk 606 isi berbeda. Kodenya sudah berhenti menggandakan; skrip ini membereskan sisanya.
+//
+// Dipakai dua kali di dua mode (--prod), bukan sekali: masing-masing database punya sisa duplikatnya sendiri.
 //
 // Dedup PER PROPERTI, bukan global: path tetap <sku>/NN-uuid.webp sehingga folder SKU tetap terbaca dan hapus
 // properti tetap operasi terisolasi — tidak ada file satu properti yang tersangkut di properti lain. Grup
@@ -13,23 +15,61 @@
 // Urutan: update DB dulu, file lama di-rm setelah commit. Kalau rm gagal, yang tertinggal adalah file tak
 // terpakai (terdeteksi scan orphan, bisa dihapus dari UI), bukan baris DB yang menunjuk file hilang.
 //
-// Jalankan: node scripts/consolidate-media-duplicates.mjs --dry-run
-//           node scripts/consolidate-media-duplicates.mjs
+// Jalankan (development):  node scripts/consolidate-media-duplicates.mjs --dry-run
+//                          node scripts/consolidate-media-duplicates.mjs
+// Jalankan (produksi):     node scripts/consolidate-media-duplicates.mjs --prod --dry-run
+//                          node scripts/consolidate-media-duplicates.mjs --prod
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { cp, mkdir, readFile, rm } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
 import path from "node:path";
 import pg from "pg";
 
 const dryRun = process.argv.includes("--dry-run");
+// --prod wajib disebut terang-terangan. Tanpa flag ini skrip hanya menerima database development,
+// supaya tidak ada jalan menyentuh produksi karena salah menyetel environment.
+const prod = process.argv.includes("--prod");
 
-try { loadEnvFile(".env.local"); } catch { }
-try { loadEnvFile(".env.migration.local"); } catch { }
-const target = new URL(process.env.DATABASE_MIGRATION_URL || process.env.DATABASE_URL || "");
-if (target.hostname !== "127.0.0.1" || !["/lelang_properti_dev"].includes(target.pathname)) throw new Error("Skrip ini hanya menerima database development lokal.");
-const storageRoot = process.env.STORAGE_ROOT;
-if (!storageRoot || !path.isAbsolute(storageRoot)) throw new Error("STORAGE_ROOT wajib path absolut.");
+let target;
+let storageRoot;
+let backupRootDefault;
+if (prod) {
+  // Kredensial dan path produksi dibaca dari .env.docker.local, pola sama seperti migrate-docker.mjs:
+  // URL dibangun sendiri (role migrator, host dipaksa loopback) bukan diambil dari DATABASE_URL.
+  try { loadEnvFile(".env.docker.local"); } catch { throw new Error("Buat .env.docker.local terlebih dahulu."); }
+  const port = process.env.POSTGRES_PORT || "15433";
+  const password = process.env.POSTGRES_MIGRATOR_PASSWORD;
+  if (!/^\d+$/.test(port) || !password) throw new Error("POSTGRES_PORT dan POSTGRES_MIGRATOR_PASSWORD wajib terisi pada .env.docker.local.");
+  target = new URL("postgresql://127.0.0.1");
+  target.username = "lelang_migrator";
+  target.password = password;
+  target.port = port;
+  target.pathname = "/" + (process.env.POSTGRES_DB || "lelang_properti_prod");
+  // Storage produksi dibaca dari path host yang di-mount ke /data/storage container, bukan STORAGE_ROOT dev.
+  storageRoot = process.env.STORAGE_HOST_PATH;
+  backupRootDefault = process.env.DOCKER_BACKUP_ROOT;
+} else {
+  try { loadEnvFile(".env.local"); } catch { }
+  try { loadEnvFile(".env.migration.local"); } catch { }
+  target = new URL(process.env.DATABASE_MIGRATION_URL || process.env.DATABASE_URL || "");
+  storageRoot = process.env.STORAGE_ROOT;
+  backupRootDefault = process.env.BACKUP_ROOT;
+}
+// Loopback tetap wajib di kedua mode; nama database dibatasi sesuai mode supaya --prod tidak bisa
+// mengenai dev dan sebaliknya.
+const allowed = prod ? ["/lelang_properti_prod"] : ["/lelang_properti_dev"];
+if (target.hostname !== "127.0.0.1" || !allowed.includes(target.pathname)) throw new Error("Database di luar cakupan mode ini: " + target.pathname + " (mode " + (prod ? "produksi" : "development") + ").");
+if (!storageRoot || !path.isAbsolute(storageRoot)) throw new Error((prod ? "STORAGE_HOST_PATH" : "STORAGE_ROOT") + " wajib path absolut.");
 const publicRoot = path.join(storageRoot, "public");
+
+// Produksi: aplikasi harus berhenti selama skrip jalan. Rencana dibaca sekali di awal, jadi properti yang
+// DIEDIT di tengah proses bisa menghasilkan baris yang menunjuk path yang beberapa detik kemudian di-rm.
+// Upload murni aman, tapi editnya tidak — jadi pintunya ditutup, bukan diperingatkan.
+if (prod && !dryRun) {
+  const running = spawnSync("docker", ["inspect", "-f", "{{.State.Running}}", "project-lelangan-properti-app"], { encoding: "utf8", windowsHide: true });
+  if (running.stdout?.trim() === "true") throw new Error("Hentikan container app dahulu: docker compose --env-file .env.docker.local stop app");
+}
 
 const megabytes = (bytes) => (bytes / 1024 / 1024).toFixed(1) + " MB";
 
@@ -102,9 +142,11 @@ try {
     process.exit(0);
   }
 
-  // Backup seluruh public/ sebelum menyentuh apa pun. BACKUP_ROOT wajib di luar repository.
-  const backupRoot = process.env.BACKUP_ROOT;
-  if (!backupRoot || !path.isAbsolute(backupRoot)) throw new Error("BACKUP_ROOT wajib path absolut di luar repository.");
+  // Backup seluruh public/ sebelum menyentuh apa pun. Wajib di luar repository: BACKUP_ROOT untuk dev,
+  // DOCKER_BACKUP_ROOT untuk produksi. Ini salinan kedua di samping npm run docker:backup — murah
+  // dibanding kehilangan foto, dan yang ini khusus berisi keadaan persis sebelum skrip menyentuh apa pun.
+  const backupRoot = backupRootDefault;
+  if (!backupRoot || !path.isAbsolute(backupRoot)) throw new Error((prod ? "DOCKER_BACKUP_ROOT" : "BACKUP_ROOT") + " wajib path absolut di luar repository.");
   const backupDir = path.join(backupRoot, "media-dedup-" + new Date().toISOString().replaceAll(":", "-"));
   await mkdir(backupDir, { recursive: true });
   await cp(publicRoot, backupDir, { recursive: true });
