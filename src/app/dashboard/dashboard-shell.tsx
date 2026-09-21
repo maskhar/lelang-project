@@ -31,6 +31,7 @@ const adminLinks = [
   { href: "/dashboard/assignments", label: "Penugasan" },
   { href: "/dashboard/audit", label: "Audit" },
   { href: "/dashboard/outbox", label: "Outbox" },
+  { href: "/dashboard/media", label: "Media" },
   { href: "/dashboard/users", label: "Akun" },
   { href: "/dashboard/access-requests", label: "Pengajuan akses" },
   { href: "/dashboard/webhooks", label: "Webhook" },

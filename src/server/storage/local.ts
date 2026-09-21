@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, mkdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { AuthHttpError } from "@/server/auth/http";
 import { parseStorageRoot } from "@/server/env";
@@ -21,3 +21,34 @@ export async function discard(objectPath:string){await rm(filePath("quarantine",
 export async function discardPublic(objectPath:string){const target=filePath("public",objectPath);await rm(target,{force:true});if(path.dirname(target)!==path.join(root(),"public"))await rmdir(path.dirname(target)).catch(()=>undefined);}
 export async function readPublic(objectPath:string){return readFile(filePath("public",objectPath));}
 export async function readQuarantine(objectPath:string){return readFile(filePath("quarantine",objectPath));}
+
+// Dipakai scan orphan media library: daftar isi bucket apa adanya, untuk dibandingkan dengan property_media.
+// objectPath selalu dinormalisasi ke "/" karena kolom object_path memakai "/" sementara path.sep di Windows "\".
+// Bucket yang belum pernah dibuat (quarantine pada instalasi bersih) dikembalikan sebagai daftar kosong, bukan error.
+// `cap` menjaga scan tetap berbatas: melebihi itu hasil ditandai truncated supaya UI tidak mengaku lengkap.
+export type StoredObject = { bucket: "quarantine" | "public"; objectPath: string; sizeBytes: number; modifiedAt: string };
+// Ukuran satu objek, atau null bila tidak ada. Dipakai penghapusan orphan supaya path yang tidak ada
+// ditolak dengan jelas, bukan lolos diam-diam lewat rm({force:true}) lalu meninggalkan baris audit palsu.
+export async function statObject(bucket: "quarantine" | "public", objectPath: string) {
+  const info = await stat(filePath(bucket, objectPath)).catch(() => null);
+  return info?.isFile() ? { sizeBytes: info.size, modifiedAt: info.mtime.toISOString() } : null;
+}
+export async function listStoredObjects(bucket: "quarantine" | "public", cap = 50_000): Promise<{ objects: StoredObject[]; truncated: boolean }> {
+  const base = path.join(root(), bucket);
+  let entries;
+  try { entries = await readdir(base, { recursive: true, withFileTypes: true }); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { objects: [], truncated: false }; throw error; }
+  const objects: StoredObject[] = [];
+  let truncated = false;
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (objects.length >= cap) { truncated = true; break; }
+    const absolute = path.join(entry.parentPath, entry.name);
+    const objectPath = path.relative(base, absolute).split(path.sep).join("/");
+    // File yang hilang di tengah walk (worker menghapusnya barengan) dilewati, bukan menggagalkan seluruh scan.
+    const info = await stat(absolute).catch(() => null);
+    if (!info) continue;
+    objects.push({ bucket, objectPath, sizeBytes: info.size, modifiedAt: info.mtime.toISOString() });
+  }
+  return { objects, truncated };
+}
