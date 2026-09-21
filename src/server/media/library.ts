@@ -11,8 +11,9 @@ import { discard, discardPublic, listStoredObjects, statObject } from "@/server/
 import { classifyOrphans, type MediaRowRef } from "./orphans";
 
 // Media "terpakai" = menempel pada revisi yang sedang terbit. Sisanya menempel di draft/revisi lama:
-// editListing() menyalin file fisik tiap kali properti diedit (copyPublic), karena property_media_object_uidx
-// memaksa object_path unik per baris. Jadi satu foto yang sama memakan tempat sebanyak jumlah revisinya.
+// editListing() menurunkan foto revisi lama ke revisi baru, dan sejak 0016 barisnya menunjuk file fisik yang
+// SAMA. Jadi satu baris tidak lagi berarti satu file di disk — hitungan baris ("tercatat") dan pemakaian disk
+// sesungguhnya ("nyata di disk", dihitung atas object_path distinct) memang berbeda angkanya.
 // `is not distinct from`, bukan `=`: properti yang belum pernah terbit punya published_revision_id NULL,
 // dan `NULL = id` menghasilkan NULL sehingga barisnya jatuh dari filter "terpakai" maupun "tidak terpakai"
 // (total kedua kartu jadi tidak sama dengan total file). Bentuk ini mengembalikan false, bukan NULL.
@@ -39,6 +40,14 @@ export async function mediaLibraryStats(actor: Actor) {
     .from(propertyMedia)
     .innerJoin(propertyRevisions, eq(propertyRevisions.id, propertyMedia.revisionId))
     .innerJoin(properties, eq(properties.id, propertyRevisions.propertyId));
+  // Pemakaian disk sesungguhnya. Sejak 0016 banyak baris menunjuk satu file, jadi sum(size_bytes) per baris
+  // melebih-lebihkan: satu foto 3 MB yang dipakai 6 revisi terhitung 18 MB padahal di disk cuma 3 MB. Dihitung
+  // atas (bucket, object_path) distinct. Baris 'deleted' dikecualikan — sama seperti kartu lain — karena filenya
+  // sudah atau segera dihapus worker; angka ini harus cocok dengan jumlah file yang dilihat scan orphan.
+  const disk = await database.execute<{ files: number; bytes: string }>(sql`
+    select count(*)::integer as files, coalesce(sum(size_bytes), 0)::bigint as bytes
+    from (select distinct on (bucket, object_path) bucket, object_path, size_bytes
+          from app.property_media where status <> 'deleted') as unik`);
   const byStatus = await database
     .select({ status: propertyMedia.status, count: sql<number>`count(*)::integer`, bytes: sql<number>`coalesce(sum(${propertyMedia.sizeBytes}), 0)::bigint` })
     .from(propertyMedia)
@@ -58,6 +67,7 @@ export async function mediaLibraryStats(actor: Actor) {
     unusedFiles: number(totals?.unusedFiles), unusedBytes: number(totals?.unusedBytes),
     deletedFiles: number(totals?.deletedFiles), deletedBytes: number(totals?.deletedBytes),
     uniqueFiles: number(totals?.uniqueFiles),
+    diskFiles: number(disk.rows[0]?.files), diskBytes: number(disk.rows[0]?.bytes),
     byStatus: byStatus.map((row) => ({ status: row.status, count: number(row.count), bytes: number(row.bytes) })),
     byType: byType.map((row) => ({ contentType: row.contentType, count: number(row.count), bytes: number(row.bytes) })),
   };
@@ -137,9 +147,13 @@ export async function deleteOrphanFile(actor: Actor, value: unknown) {
   // Hasil scan bisa sudah basi saat tombol diklik. Pemeriksaan ulang ini satu-satunya pagar sebelum rm:
   // begitu ada baris apa pun untuk (bucket, object_path) — termasuk berstatus deleted yang masih ditunggu
   // worker media.cleanup — file itu bukan milik kita dan penghapusan ditolak.
-  const [owned] = await getDatabase().select({ id: propertyMedia.id, status: propertyMedia.status }).from(propertyMedia)
+  // Sejak 0016 satu path bisa dimiliki banyak baris (revisi berbagi file), jadi semua baris dibaca, bukan satu.
+  const owners = await getDatabase().select({ id: propertyMedia.id, status: propertyMedia.status }).from(propertyMedia)
     .where(and(eq(propertyMedia.bucket, input.bucket), eq(propertyMedia.objectPath, input.objectPath)));
-  if (owned) throw new AuthHttpError(409, "MEDIA_NOT_ORPHAN", "File ini terdaftar di database (status " + owned.status + "), jadi tidak dihapus. Jalankan scan ulang.");
+  if (owners.length) {
+    const statuses = [...new Set(owners.map((row) => row.status))].join(", ");
+    throw new AuthHttpError(409, "MEDIA_NOT_ORPHAN", "File ini dipakai " + owners.length + " baris di database (status " + statuses + "), jadi tidak dihapus. Jalankan scan ulang.");
+  }
   // Path yang sudah tidak ada ditolak: rm({force:true}) akan sukses tanpa protes, dan hasilnya baris audit
   // "terhapus" untuk file yang tidak pernah ada — laporan yang lebih buruk daripada error.
   const info = await statObject(input.bucket, input.objectPath);

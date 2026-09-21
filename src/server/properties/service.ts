@@ -6,8 +6,7 @@ import { getDatabase } from "@/server/db/client";
 import { properties, propertyRevisions, propertyMedia, auditLogs, outboxEvents, leads, profiles, webhookEndpoints } from "@/server/db/schema";
 import { requireRole, type Actor } from "@/server/auth/actor";
 import { AuthHttpError } from "@/server/auth/http";
-import { copyPublic, discard, discardPublic } from "@/server/storage/local";
-import { mediaObjectPath } from "@/server/media/object-path";
+import { discardUnreferenced } from "@/server/media/refcount";
 import { formatRupiah } from "@/lib/currency";
 import { amenityByKey } from "@/lib/amenities";
 import { propertyActionLabels } from "@/lib/property-actions";
@@ -65,23 +64,16 @@ export async function editListing(actor: Actor, id: string, version: number, inp
     const [revision] = await transaction.insert(propertyRevisions).values({ propertyId: id, revisionNumber: (latest?.revisionNumber ?? 0) + 1, ...revisionValues(input), listingSnapshot: snapshot(input) }).returning();
     // Foto tidak melekat ke properti, melekat ke revisi (lihat property_media.revision_id). Tanpa ini setiap
     // simpan bikin revisi baru dengan 0 foto dan memaksa upload ulang meski hanya harga/deskripsi yang berubah.
-    // File fisik digandakan (bukan cuma baris DB) karena object_path unik per baris — dua revisi tidak boleh
-    // menunjuk file yang sama, supaya hapus foto di satu revisi tidak ikut menghapus foto revisi lain.
+    // Revisi baru menunjuk file fisik yang SAMA — dulu tiap foto di-copyPublic jadi file baru karena object_path
+    // unik per baris (index itu dilepas di 0016). Penggandaan itu tumbuh linier terhadap jumlah edit: 52 properti
+    // memakan 1663 file / 510 MB untuk hanya 534 isi gambar berbeda. Aman karena penghapusan fisik sekarang
+    // wajib lewat discardIfUnreferenced(): file baru hilang kalau tidak ada baris lain yang menunjuknya.
     const previousMedia = latest ? await transaction.select().from(propertyMedia).where(and(eq(propertyMedia.revisionId, latest.id), eq(propertyMedia.status, "ready"))).orderBy(asc(propertyMedia.sortOrder)) : [];
-    const copiedPaths: string[] = [];
-    try {
-      for (const item of previousMedia) {
-        const destination = mediaObjectPath(sku, item.sortOrder + 1, randomUUID());
-        await copyPublic(item.objectPath, destination);
-        copiedPaths.push(destination);
-        await transaction.insert(propertyMedia).values({ revisionId: revision.id, bucket: item.bucket, objectPath: destination, contentType: item.contentType, sizeBytes: item.sizeBytes, checksumSha256: item.checksumSha256, sortOrder: item.sortOrder, isCover: item.isCover, status: "ready" });
-      }
-    } catch (error) {
-      await Promise.all(copiedPaths.map((path) => discardPublic(path).catch(() => undefined)));
-      throw error;
+    for (const item of previousMedia) {
+      await transaction.insert(propertyMedia).values({ revisionId: revision.id, bucket: item.bucket, objectPath: item.objectPath, contentType: item.contentType, sizeBytes: item.sizeBytes, checksumSha256: item.checksumSha256, sortOrder: item.sortOrder, isCover: item.isCover, status: "ready" });
     }
     await transaction.update(properties).set({ sku, publicationStatus: property.publishedRevisionId ? property.publicationStatus : "draft", version: version + 1, updatedAt: new Date() }).where(eq(properties.id, id));
-    await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property.edited", entityType: "property", entityId: id, metadata: { revisionId: revision.id, mediaCopied: previousMedia.length } });
+    await transaction.insert(auditLogs).values({ actorId: actor.profileId, action: "property.edited", entityType: "property", entityId: id, metadata: { revisionId: revision.id, mediaShared: previousMedia.length } });
     return { revision, version: version + 1 };
   });
 }
@@ -276,8 +268,11 @@ export async function deleteListings(actor: Actor, value: unknown) {
     await enqueueStaffNotification(transaction, { event: "property.deleted", actorId: actor.profileId, actorName: actor.name, occurredAt: new Date().toISOString(), entities: rows.map((row) => ({ sku: row.sku, title: latestTitle.get(row.id)?.title ?? "" })) });
     return media;
   });
-  for (const file of files) await (file.bucket === "public" ? discardPublic(file.objectPath) : discard(file.objectPath)).catch(() => undefined);
-  return { deleted: ids.length, mediaRemoved: files.length };
+  // Sejak 0016 satu file dipakai banyak revisi, jadi `files` memuat path yang sama berulang (6 revisi × 19 foto =
+  // 114 entri untuk 19 file) dan bisa memuat path yang masih dipakai baris lain. discardUnreferenced yang
+  // men-dedup dan memeriksa pemakai sisa; yang dilaporkan adalah file yang benar-benar hilang dari disk.
+  const removed = await discardUnreferenced(getDatabase(), files);
+  return { deleted: ids.length, mediaRemoved: removed.length };
 }
 
 export async function createLead(input: z.infer<typeof leadInput>, buyerId?: string) {

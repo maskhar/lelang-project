@@ -63,6 +63,26 @@ describe("classifyOrphans", () => {
     assert.equal(report.menungguWorker.sample[0].status, "deleted");
   });
 
+  // Sejak 0016 revisi berbagi file fisik, jadi dua baris pada satu path adalah keadaan normal — keadaan yang
+  // dulu tidak mungkin ada karena property_media_object_uidx. File hanya menunggu worker kalau SEMUA
+  // barisnya deleted; satu baris hidup saja berarti file itu masih dipakai revisi lain.
+  it("keeps a shared file out of menungguWorker while one row is still live", () => {
+    const shared = [{ id: "lama", bucket: "public", objectPath: "lp-01/01-a.webp", status: "deleted" as const },
+      { id: "baru", bucket: "public", objectPath: "lp-01/01-a.webp", status: "ready" as const }];
+    const report = classifyOrphans(shared, [file("lp-01/01-a.webp", 4096)]);
+    assert.equal(report.menungguWorker.count, 0);
+    assert.equal(report.tanpaBaris.count, 0);
+    assert.equal(report.fileHilang.count, 0);
+  });
+
+  it("flags a shared file as menungguWorker once every row is deleted", () => {
+    const shared = [{ id: "lama", bucket: "public", objectPath: "lp-01/01-a.webp", status: "deleted" as const },
+      { id: "baru", bucket: "public", objectPath: "lp-01/01-a.webp", status: "deleted" as const }];
+    const report = classifyOrphans(shared, [file("lp-01/01-a.webp", 4096)]);
+    assert.equal(report.menungguWorker.count, 1);
+    assert.equal(report.menungguWorker.bytes, 4096);
+  });
+
   it("flags an active row whose file vanished from disk", () => {
     const report = classifyOrphans([row("lp-01/01-a.webp"), row("lp-01/02-b.webp", "pending")], []);
     assert.equal(report.fileHilang.count, 2);

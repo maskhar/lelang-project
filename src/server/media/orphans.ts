@@ -1,5 +1,6 @@
 // Klasifikasi orphan media: fungsi murni tanpa disk/DB supaya bisa diuji unit tanpa Postgres.
-// Kunci peta adalah (bucket, objectPath) — pasangan yang memang unik menurut index property_media_object_uidx.
+// Kunci peta adalah (bucket, objectPath), dan satu kunci bisa punya BANYAK baris: sejak 0016 revisi berbagi file
+// fisik yang sama, jadi peta menyimpan daftar baris, bukan satu baris.
 
 export type MediaRowRef = { id: string; bucket: string; objectPath: string; status: "pending" | "ready" | "rejected" | "deleted" };
 export type StoredFileRef = { bucket: "quarantine" | "public"; objectPath: string; sizeBytes: number; modifiedAt: string };
@@ -33,16 +34,24 @@ function push<T>(target: OrphanClass<T>, item: T, bytes: number) {
 
 export function classifyOrphans(rows: MediaRowRef[], files: StoredFileRef[]): OrphanReport {
   const report: OrphanReport = { tanpaBaris: emptyClass(), menungguWorker: emptyClass(), sisaQuarantine: emptyClass(), fileHilang: emptyClass() };
-  const byPath = new Map(rows.map((row) => [key(row.bucket, row.objectPath), row]));
+  const byPath = new Map<string, MediaRowRef[]>();
+  for (const row of rows) {
+    const id = key(row.bucket, row.objectPath);
+    const list = byPath.get(id);
+    if (list) list.push(row); else byPath.set(id, [row]);
+  }
   const onDisk = new Set(files.map((file) => key(file.bucket, file.objectPath)));
 
   for (const file of files) {
-    const row = byPath.get(key(file.bucket, file.objectPath));
-    const entry: OrphanFile = { ...file, mediaId: row?.id ?? null, status: row?.status ?? null };
+    const owners = byPath.get(key(file.bucket, file.objectPath)) ?? [];
+    // mediaId/status mewakili satu baris saja (yang pertama) — kolom informatif di UI, bukan dasar klasifikasi.
+    const entry: OrphanFile = { ...file, mediaId: owners[0]?.id ?? null, status: owners[0]?.status ?? null };
     // Quarantine diperiksa lebih dulu: file di sana tidak pernah masuk kelas lain, apa pun status barisnya.
     if (file.bucket === "quarantine") push(report.sisaQuarantine, entry, file.sizeBytes);
-    else if (!row) push(report.tanpaBaris, entry, file.sizeBytes);
-    else if (row.status === "deleted") push(report.menungguWorker, entry, file.sizeBytes);
+    else if (!owners.length) push(report.tanpaBaris, entry, file.sizeBytes);
+    // Hanya "menunggu worker" kalau SEMUA baris pada path itu deleted. Kalau ada satu saja yang masih hidup,
+    // file itu justru sedang dipakai revisi lain dan bukan kandidat penghapusan.
+    else if (owners.every((row) => row.status === "deleted")) push(report.menungguWorker, entry, file.sizeBytes);
   }
 
   for (const row of rows) {

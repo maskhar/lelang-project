@@ -74,7 +74,10 @@ export const propertyMedia = appSchema.table("property_media", {
 }, (table) => [
   check("media_size_and_order", sql`${table.sizeBytes} between 1 and 5242880 and ${table.sortOrder} >= 0`),
   uniqueIndex("property_media_cover_uidx").on(table.revisionId).where(sql`${table.isCover} = true and ${table.status} <> 'deleted'`),
-  uniqueIndex("property_media_object_uidx").on(table.bucket, table.objectPath),
+  // Tidak unik (sejak 0016): banyak revisi menunjuk satu file fisik yang sama, karena editListing() berbagi
+  // file alih-alih menggandakannya. Keunikan pindah ke discardIfUnreferenced() di media/refcount.ts, yang
+  // memakai index ini untuk menghitung pemakai sebuah path sebelum file dihapus dari disk.
+  index("property_media_object_idx").on(table.bucket, table.objectPath),
   index("property_media_revision_idx").on(table.revisionId, table.status, table.sortOrder),
 ]);
 

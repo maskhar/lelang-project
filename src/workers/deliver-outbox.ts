@@ -16,9 +16,18 @@ export async function deliverOutbox(limit = 25) {
       if (!event) { await client.query("commit"); break; }
       try {
         if (event.type === "media.verify") await processMedia(String(event.payload.mediaId));
+        // Sejak 0016 revisi berbagi file fisik, jadi file baru boleh dihapus kalau tidak ada baris LAIN yang
+        // menunjuk path itu. Baris milik event ini sendiri dikecualikan: statusnya sudah 'deleted' tapi barisnya
+        // sengaja dipertahankan supaya worker masih bisa menemukan path-nya. Hasil "kept" tetap sukses —
+        // filenya memang harus tinggal karena revisi lain masih memakainya, bukan kegagalan yang perlu retry.
         else if (event.type === "media.cleanup") {
-          const media = await pool.query("select bucket,object_path from app.property_media where id=$1 and status='deleted'", [String(event.payload.mediaId)]);
-          if (media.rows[0]) await (media.rows[0].bucket === "public" ? discardPublic(media.rows[0].object_path) : discard(media.rows[0].object_path));
+          const mediaId = String(event.payload.mediaId);
+          const media = await pool.query("select bucket,object_path from app.property_media where id=$1 and status='deleted'", [mediaId]);
+          if (media.rows[0]) {
+            const { bucket, object_path: objectPath } = media.rows[0];
+            const users = await pool.query("select count(*)::integer as users from app.property_media where bucket=$1 and object_path=$2 and id<>$3", [bucket, objectPath, mediaId]);
+            if (users.rows[0].users === 0) await (bucket === "public" ? discardPublic(objectPath) : discard(objectPath));
+          }
         }
         else if (event.type === "webhook.lead_created") await deliverLeadWebhook(pool, event);
         else if (event.type === "webhook.notification") await deliverNotificationWebhook(pool, event);

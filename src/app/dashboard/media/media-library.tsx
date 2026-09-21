@@ -18,7 +18,7 @@ type Row = {
 type Page = { items: Row[]; nextCursor: string | null; total: number };
 type Stats = {
   files: number; bytes: number; usedFiles: number; usedBytes: number; unusedFiles: number; unusedBytes: number;
-  deletedFiles: number; deletedBytes: number; uniqueFiles: number;
+  deletedFiles: number; deletedBytes: number; uniqueFiles: number; diskFiles: number; diskBytes: number;
   byStatus: Array<{ status: string; count: number; bytes: number }>;
   byType: Array<{ contentType: string; count: number; bytes: number }>;
 };
@@ -133,13 +133,15 @@ export default function MediaLibrary() {
     </div>
 
     {stats && <div className={styles.stats}>
-      <div className={styles.stat}><span>Total file</span><strong>{count.format(stats.files)}</strong><small>{formatBytes(stats.bytes)} terpakai di disk</small></div>
-      <div className={styles.stat} data-tone="green"><span>Terpakai</span><strong>{count.format(stats.usedFiles)}</strong><small>{formatBytes(stats.usedBytes)} · menempel di revisi terbit</small></div>
-      <div className={styles.stat} data-tone="gold"><span>Tidak terpakai</span><strong>{count.format(stats.unusedFiles)}</strong><small>{formatBytes(stats.unusedBytes)} · salinan di draft/revisi lama</small></div>
-      <div className={styles.stat}><span>Konten unik</span><strong>{count.format(stats.uniqueFiles)}</strong><small>hasil dedup checksum — sisanya salinan identik</small></div>
+      <div className={styles.stat}><span>Baris tercatat</span><strong>{count.format(stats.files)}</strong><small>{formatBytes(stats.bytes)} bila tiap baris file sendiri</small></div>
+      <div className={styles.stat} data-tone="green"><span>Nyata di disk</span><strong>{count.format(stats.diskFiles)}</strong><small>{formatBytes(stats.diskBytes)} · file fisik sesungguhnya</small></div>
+      <div className={styles.stat} data-tone="gold"><span>Tidak terpakai</span><strong>{count.format(stats.unusedFiles)}</strong><small>{formatBytes(stats.unusedBytes)} · baris di draft/revisi lama</small></div>
+      <div className={styles.stat}><span>Konten unik</span><strong>{count.format(stats.uniqueFiles)}</strong><small>hasil dedup checksum — isi gambar yang benar-benar berbeda</small></div>
     </div>}
 
-    {stats && stats.unusedFiles > 0 && <p><small>Setiap kali properti diedit, foto lamanya disalin ke revisi baru sebagai file terpisah. Itu sebabnya {count.format(stats.unusedFiles)} file ({formatBytes(stats.unusedBytes)}) tidak menempel di revisi terbit. File tersebut tetap dibutuhkan bila revisi lama dibuka atau dipulihkan, jadi tidak dihitung sebagai orphan.</small></p>}
+    {/* Kartu "Baris tercatat" dan "Nyata di disk" memang berbeda dan keduanya benar: satu file dipakai banyak
+        revisi sekaligus, jadi menjumlah size_bytes per baris menghitung file yang sama berulang kali. */}
+    {stats && stats.files > stats.diskFiles && <p><small>Setiap kali properti diedit, revisi barunya memakai <strong>file yang sama</strong>, bukan salinan. Itu sebabnya {count.format(stats.files)} baris hanya memakan {count.format(stats.diskFiles)} file ({formatBytes(stats.diskBytes)}) di disk. Baris yang tidak menempel di revisi terbit pun tidak memakan tempat tambahan, jadi bukan orphan.</small></p>}
 
     <section className={styles.panel} aria-busy={loading || loadingMore}>
       <div className={styles.panelHead}><h2>Daftar file</h2></div>
