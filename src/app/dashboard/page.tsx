@@ -37,6 +37,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const mediaTotal = sum(summary.media);
   const published = count(summary.listings, "published");
   const needsReview = count(summary.listings, "pending_review");
+  // Antrean keluar: sudah diperiksa admin, ditolak, dan bolanya di tangan pemilik. Tanpa kartu ini
+  // angkanya tidak muncul di mana pun — listing bisa mengendap berbulan-bulan tanpa ada yang sadar,
+  // karena "Menunggu review" justru 0 saat semuanya sudah selesai diperiksa.
+  const needsRevision = count(summary.listings, "revision_required");
   const newLeads = count(summary.leads, "new");
   const pendingMedia = count(summary.media, "pending");
   const sold = count(summary.availability, "sold");
@@ -67,6 +71,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       <div className={styles.stats}>
         <div className={styles.stat} data-tone="green"><span>Terpublikasi</span><strong>{published}</strong><small>dari {listingTotal} listing · {sold} terjual</small></div>
         <div className={styles.stat} data-tone="gold"><span>Menunggu review</span><strong>{needsReview}</strong><small><Link href="/dashboard/properties?review=pending">Buka antrean review</Link></small></div>
+        <div className={styles.stat} data-tone={needsRevision > 0 ? "red" : undefined}><span>Perlu revisi</span><strong>{needsRevision}</strong><small><Link href="/dashboard/properties?status=revision_required">Lihat yang harus diperbaiki</Link></small></div>
         <div className={styles.stat} data-tone="gold"><span>Lead baru</span><strong>{newLeads}</strong><small>dari {leadTotal} lead · <Link href="/dashboard/leads">tindak lanjut</Link></small></div>
         <div className={styles.stat} data-tone={summary.outbox.deadLetter > 0 ? "red" : undefined}><span>Outbox</span><strong>{summary.outbox.pending}</strong><small>{summary.outbox.deadLetter} gagal permanen · <Link href="/dashboard/outbox">lihat antrean</Link></small></div>
       </div>

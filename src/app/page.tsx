@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { contactEmail, phoneHref, phoneLabel } from "@/lib/contact";
 import { formatRupiah } from "@/lib/currency";
 import { propertyTypes } from "@/lib/properties";
 import { catalogView, type CatalogView as Property, type PublicListing } from "@/lib/catalog-view";
@@ -221,7 +222,7 @@ function CatalogHome() {
       <section className="seller" id="jual"><div><span className="eyebrow">UNTUK PEMILIK ASET</span><h2>Punya properti untuk dijual atau dilelang?</h2><p>Masuk ke dashboard untuk membuat draft, menambahkan foto, dan mengirim properti ke proses review.</p></div><Link className="button light" href="/dashboard/properties">Daftarkan Properti</Link></section>
     </main>
 
-    <footer id="kontak" className="home-footer"><div><Image src="/image/logo/color/LP-logo-large-color.png" alt="Lelang Properti" width={1944} height={809} className="footer-logo" /><p>Platform pencarian dan transaksi properti dengan proses transparan.</p></div><div><b>Jelajahi</b><a href="#properti">Cari Properti</a><a href="#cara-kerja">Cara Kerja</a></div><div><b>Kontak</b><a href="mailto:halo@lelangproperti.id">halo@lelangproperti.id</a><a href="tel:+6281200000000">+62 812-0000-0000</a><Link href="/kebijakan-privasi">Kebijakan Privasi</Link><Link href="/syarat-dan-ketentuan">Syarat dan Ketentuan</Link></div><small>© 2026 Lelang Properti</small></footer>
+    <footer id="kontak" className="home-footer"><div><Image src="/image/logo/color/LP-logo-large-color.png" alt="Lelang Properti" width={1944} height={809} className="footer-logo" /><p>Platform pencarian dan transaksi properti dengan proses transparan.</p></div><div><b>Jelajahi</b><a href="#properti">Cari Properti</a><a href="#cara-kerja">Cara Kerja</a></div><div><b>Kontak</b><a href={"mailto:" + contactEmail}>{contactEmail}</a><a href={"tel:" + phoneHref}>{phoneLabel}</a><Link href="/kebijakan-privasi">Kebijakan Privasi</Link><Link href="/syarat-dan-ketentuan">Syarat dan Ketentuan</Link></div><small>© 2026 Lelang Properti</small></footer>
 
     {notice && <div className="demo-notice" role="status">{notice}<button aria-label="Tutup pemberitahuan" onClick={() => setNotice("")}>×</button></div>}
   </>;

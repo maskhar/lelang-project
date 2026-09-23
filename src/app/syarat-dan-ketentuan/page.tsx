@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import styles from "../kebijakan-privasi/privacy.module.css";
+import { contactEmail } from "@/lib/contact";
 
 type TermsSection = { title: string; paragraphs: string[]; items?: string[] };
 
@@ -19,7 +20,7 @@ const sections: TermsSection[] = [
   { title: "12. Batas Tanggung Jawab", paragraphs: ["Sejauh diizinkan hukum, Lelang Properti tidak menjamin layanan bebas gangguan atau bebas kesalahan, serta tidak bertanggung jawab atas keputusan transaksi, sengketa antara para pihak, ketidakakuratan informasi yang diberikan pengguna, atau kerugian tidak langsung yang timbul dari penggunaan layanan.", "Tidak ada dalam ketentuan ini yang membatasi tanggung jawab yang tidak boleh dibatasi berdasarkan hukum yang berlaku."] },
   { title: "13. Penangguhan dan Penghentian", paragraphs: ["Kami dapat mengubah, menangguhkan, atau menghentikan sebagian layanan maupun akses pengguna untuk pemeliharaan, keamanan, pelanggaran ketentuan, atau alasan operasional yang sah. Penghentian akses tidak menghapus kewajiban yang telah timbul sebelumnya."] },
   { title: "14. Hukum dan Penyelesaian Perselisihan", paragraphs: ["Ketentuan ini diatur oleh hukum Republik Indonesia. Perselisihan akan diupayakan terlebih dahulu melalui musyawarah. Bila tidak selesai, penyelesaian dilakukan melalui mekanisme yang tersedia menurut hukum yang berlaku."] },
-  { title: "15. Kontak", paragraphs: ["Untuk pertanyaan atau keluhan mengenai ketentuan ini, hubungi kami melalui halo@lelangproperti.id."] },
+  { title: "15. Kontak", paragraphs: ["Untuk pertanyaan atau keluhan mengenai ketentuan ini, hubungi kami melalui " + contactEmail + "."] },
 ];
 
 export default function TermsPage() {

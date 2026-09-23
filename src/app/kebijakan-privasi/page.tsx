@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import styles from "./privacy.module.css";
+import { contactEmail } from "@/lib/contact";
 
 type PolicySection = { title: string; paragraphs: string[]; items?: string[] };
 
@@ -35,7 +36,7 @@ export default function PrivacyPolicyPage() {
         <p className={styles.intro}>Dokumen ini menjelaskan bagaimana Lelang Properti mengelola Data Pribadi dalam layanan katalog, pemasaran, dan pengelolaan properti.</p>
         <div className={styles.summary}><h2>Ringkasan</h2><p>Kami mengumpulkan data seperlunya untuk menjalankan layanan, menjaga keamanan, dan menindaklanjuti minat properti. Kami tidak menjual Data Pribadi atau memproses pembayaran melalui layanan ini.</p></div>
         {sections.map((section) => <section key={section.title}><h2>{section.title}</h2>{section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}{section.items && <ul>{section.items.map((item) => <li key={item}>{item}</li>)}</ul>}</section>)}
-        <section><h2>14. Hubungi Kami</h2><p>Untuk pertanyaan, permintaan terkait Data Pribadi, atau keluhan, hubungi kami melalui <a href="mailto:halo@lelangproperti.id">halo@lelangproperti.id</a>. Sertakan nama, kontak yang dapat dihubungi, dan uraian permintaan agar dapat kami tindak lanjuti.</p></section>
+        <section><h2>14. Hubungi Kami</h2><p>Untuk pertanyaan, permintaan terkait Data Pribadi, atau keluhan, hubungi kami melalui <a href={"mailto:" + contactEmail}>{contactEmail}</a>. Sertakan nama, kontak yang dapat dihubungi, dan uraian permintaan agar dapat kami tindak lanjuti.</p></section>
         <p className={styles.legal}>Kebijakan ini disusun untuk mendukung prinsip pelindungan data pribadi menurut peraturan yang berlaku di Indonesia, termasuk Undang-Undang Nomor 27 Tahun 2022 tentang Pelindungan Data Pribadi. Dokumen ini bukan nasihat hukum dan perlu ditinjau kembali sebelum peluncuran produksi atau perubahan model layanan.</p>
       </article>
     </main>
