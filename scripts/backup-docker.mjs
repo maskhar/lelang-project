@@ -37,9 +37,17 @@ async function archiveStorage() {
   // Arsip penuh setiap kali dijalankan (bukan incremental) — sederhana dan cukup untuk volume
   // dokumen/foto properti saat ini. Jadwalkan lewat Task Scheduler Windows di host operator.
   //
-  // --force-local wajib di Windows: tanpa itu GNU tar membaca "I:/..." sebagai host:path remote dan
-  // gagal dengan "Cannot connect to I: resolve failed" — backup produksi diam-diam tidak pernah jadi.
-  const result = spawnSync("tar", ["--force-local", "-czf", storageArchive, "-C", path.dirname(storageRoot), path.basename(storageRoot)], { windowsHide: true, stdio: ["ignore", "pipe", "inherit"] });
+  // Di Windows "tar" bisa berarti dua program berbeda, tergantung shell yang memanggil npm:
+  //   - Git Bash  -> GNU tar. Membaca "I:/..." sebagai host:path remote dan gagal dengan
+  //                  "Cannot connect to I: resolve failed" KECUALI diberi --force-local.
+  //   - PowerShell/cmd -> bsdtar bawaan Windows. Menangani drive letter dengan benar, tapi
+  //                  MENOLAK --force-local ("Option --force-local is not supported").
+  // Jadi flag itu wajib pada yang satu dan fatal pada yang lain. Varian tar dideteksi dulu, bukan
+  // diasumsikan: sebelumnya flag selalu dikirim, sehingga backup lewat PowerShell selalu gagal.
+  const variant = spawnSync("tar", ["--version"], { encoding: "utf8", windowsHide: true });
+  const isGnuTar = (variant.stdout || "").includes("GNU tar");
+  const args = isGnuTar ? ["--force-local"] : [];
+  const result = spawnSync("tar", [...args, "-czf", storageArchive, "-C", path.dirname(storageRoot), path.basename(storageRoot)], { windowsHide: true, stdio: ["ignore", "pipe", "inherit"] });
   if (result.status !== 0) throw new Error("Arsip storage gagal; pesan tar di atas.");
   await chmod(storageArchive, 0o600);
 }
