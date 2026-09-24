@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { normalizeWhatsappNumber, buildWhatsappLink, phoneHref, phoneLabel, contactEmail } from "../../src/lib/contact";
+import { normalizeWhatsappNumber, buildWhatsappLink, buildContactDetails, contactEmail } from "../../src/lib/contact";
 
 describe("normalizeWhatsappNumber", () => {
   it("mengubah awalan 0 menjadi kode negara 62", () => {
@@ -18,12 +18,12 @@ describe("normalizeWhatsappNumber", () => {
 });
 
 describe("buildWhatsappLink", () => {
-  it("selalu mengarah ke wa.me dengan nomor default", () => {
-    const link = buildWhatsappLink({ title: "Rumah Uji", price: "Rp 90 M", address: "Kota Malang", mapsUrl: "https://www.google.com/maps?q=1,2", propertyUrl: "https://domain/properti/abc" });
+  it("memakai nomor yang diberikan pemanggil", () => {
+    const link = buildWhatsappLink({ whatsappNumber: "6285196340143", title: "Rumah Uji", price: "Rp 90 M", address: "Kota Malang", mapsUrl: "https://www.google.com/maps?q=1,2", propertyUrl: "https://domain/properti/abc" });
     assert.match(link, /^https:\/\/wa\.me\/6285196340143\?text=/);
   });
   it("meng-encode newline dan karakter khusus sehingga tidak merusak query string", () => {
-    const link = buildWhatsappLink({ title: "Rumah & Tanah, Siap Huni", price: "Rp 90 M", address: "Jl. Contoh No. 1", mapsUrl: "https://www.google.com/maps?q=1,2", propertyUrl: "https://domain/properti/abc" });
+    const link = buildWhatsappLink({ whatsappNumber: "6285196340143", title: "Rumah & Tanah, Siap Huni", price: "Rp 90 M", address: "Jl. Contoh No. 1", mapsUrl: "https://www.google.com/maps?q=1,2", propertyUrl: "https://domain/properti/abc" });
     assert.ok(!link.includes("\n"));
     const [, query] = link.split("?text=");
     const decoded = decodeURIComponent(query);
@@ -36,20 +36,38 @@ describe("buildWhatsappLink", () => {
 });
 
 // Footer memakai kontak yang sama dengan tombol WhatsApp. Yang dijaga di sini: tel: harus berupa nomor
-// E.164 yang bisa didial (tanpa spasi/strip), sedangkan label untuk dibaca manusia. Keduanya diturunkan
-// dari whatsappNumber supaya override WHATSAPP_NUMBER tidak membuat footer dan tombol WA berbeda diam-diam.
-describe("kontak footer", () => {
+// E.164 yang bisa didial (tanpa spasi/strip), sedangkan label untuk dibaca manusia. Ketiganya dirakit
+// buildContactDetails dari satu masukan supaya override WHATSAPP_NUMBER tidak bisa membuat footer dan
+// tombol WA menunjuk nomor berbeda.
+describe("buildContactDetails", () => {
   it("tel: memakai bentuk E.164 tanpa pemisah", () => {
-    assert.equal(phoneHref, "+6285196340143");
-    assert.match(phoneHref, /^\+\d+$/);
+    const contact = buildContactDetails();
+    assert.equal(contact.phoneHref, "+6285196340143");
+    assert.match(contact.phoneHref, /^\+\d+$/);
   });
   it("label dibaca manusia dengan pengelompokan 3-4-4", () => {
-    assert.equal(phoneLabel, "+62 851-9634-0143");
+    assert.equal(buildContactDetails().phoneLabel, "+62 851-9634-0143");
   });
-  it("label dan tel: menunjuk nomor yang sama", () => {
-    assert.equal(phoneLabel.replace(/[^\d]/g, ""), phoneHref.replace(/[^\d]/g, ""));
+  it("label, tel:, dan nomor wa.me menunjuk nomor yang sama", () => {
+    const contact = buildContactDetails();
+    assert.equal(contact.phoneLabel.replace(/[^\d]/g, ""), contact.phoneHref.replace(/[^\d]/g, ""));
+    assert.equal(contact.whatsappNumber, contact.phoneHref.slice(1));
   });
   it("email memakai domain produksi", () => {
+    assert.equal(buildContactDetails().email, "info@lelanganproperti.my.id");
     assert.equal(contactEmail, "info@lelanganproperti.my.id");
+  });
+  // Inti perbaikan: satu masukan env menggerakkan ketiga bentuk sekaligus. Kalau override hanya
+  // mengubah sebagian, footer dan tombol WhatsApp bisa menampilkan nomor berbeda di satu situs.
+  it("override menggerakkan wa.me, tel:, dan label sekaligus", () => {
+    const contact = buildContactDetails("0812-3456-7890");
+    assert.equal(contact.whatsappNumber, "6281234567890");
+    assert.equal(contact.phoneHref, "+6281234567890");
+    assert.equal(contact.phoneLabel, "+62 812-3456-7890");
+    assert.match(buildWhatsappLink({ whatsappNumber: contact.whatsappNumber, title: "t", price: "p", address: "a", mapsUrl: "m", propertyUrl: "u" }), /^https:\/\/wa\.me\/6281234567890\?/);
+  });
+  it("override yang tidak masuk akal jatuh ke default, bukan menampilkan nomor rusak", () => {
+    assert.equal(buildContactDetails("12").phoneLabel, "+62 851-9634-0143");
+    assert.equal(buildContactDetails("").whatsappNumber, "6285196340143");
   });
 });

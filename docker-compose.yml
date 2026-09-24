@@ -55,6 +55,10 @@ services:
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:?Isi GOOGLE_REDIRECT_URI pada .env.docker.local}
       STORAGE_ROOT: /data/storage
       METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # Nomor kontak tim penjualan; kosong = default di src/lib/contact.ts. Dibaca per permintaan di
+      # src/server/contact.ts dan dialirkan ke footer sebagai props, jadi ganti nomor cukup restart
+      # container app — tanpa rebuild image. Worker tidak memakainya (payload webhook hanya butuh URL).
+      WHATSAPP_NUMBER: ${WHATSAPP_NUMBER:-}
       WEBHOOK_SECRET_ENC_KEY: ${WEBHOOK_SECRET_ENC_KEY:-}
     volumes:
       - ${STORAGE_HOST_PATH:?Isi STORAGE_HOST_PATH pada .env.docker.local}:/data/storage

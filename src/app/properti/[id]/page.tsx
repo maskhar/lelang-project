@@ -12,6 +12,7 @@ import PropertyHeroGallery from "./property-hero-gallery";
 import PropertyAmenities from "./property-amenities";
 import PropertyActions from "./property-actions";
 import { buildWhatsappLink } from "@/lib/contact";
+import { getContactDetails } from "@/server/contact";
 import { parseAuthOrigin } from "@/server/env";
 import type { Metadata } from "next";
 
@@ -48,7 +49,10 @@ export default async function PropertyDetail({ params }: { params: Promise<{ id:
   const mapQuery = listing.location?.latitude != null && listing.location?.longitude != null ? `${listing.location.latitude},${listing.location.longitude}` : listing.location?.address || property.city;
   const mapLabel = listing.location?.address || property.city;
   const propertyUrl = new URL("/properti/" + property.id, parseAuthOrigin(process.env.APP_BASE_URL).origin).toString();
-  const whatsappHref = buildWhatsappLink({ title: property.title, price: formatRupiah(offer), address: mapLabel, mapsUrl: `https://www.google.com/maps?q=${encodeURIComponent(mapQuery)}`, propertyUrl });
+  // Satu sumber nomor untuk tombol WhatsApp DAN footer di PropertySiteChrome, supaya keduanya tidak
+  // bisa menunjuk nomor berbeda ketika WHATSAPP_NUMBER diubah.
+  const contact = getContactDetails();
+  const whatsappHref = buildWhatsappLink({ whatsappNumber: contact.whatsappNumber, title: property.title, price: formatRupiah(offer), address: mapLabel, mapsUrl: `https://www.google.com/maps?q=${encodeURIComponent(mapQuery)}`, propertyUrl });
   const dateLabel = recordedDate && !Number.isNaN(recordedDate.getTime()) ? new Intl.DateTimeFormat("id-ID", { dateStyle: "long", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(recordedDate) + " WIB" : "Belum tersedia";
   const specifications = [["Luas tanah", property.land > 0 ? property.land.toLocaleString("id-ID") + " m²" : "Belum tersedia"], ["Luas bangunan", property.build > 0 ? property.build.toLocaleString("id-ID") + " m²" : "Belum tersedia"], ["Kamar tidur", property.beds > 0 ? String(property.beds) : "Belum tersedia"], ["Kamar mandi", "Belum tersedia"], ["Carport", "Belum tersedia"], ["Dokumen", "Belum tersedia"], ["Jumlah lantai", "Belum tersedia"], ["Daya listrik", "Belum tersedia"], ["Jenis aset", property.type]];
   const recommendations = (await catalog(new URLSearchParams({ type: property.type, limit: "4" }))).items.map(catalogView)
@@ -60,7 +64,7 @@ export default async function PropertyDetail({ params }: { params: Promise<{ id:
     })
     .slice(0, 3);
 
-  return <PropertySiteChrome><main className={styles.page}>
+  return <PropertySiteChrome contact={contact}><main className={styles.page}>
     <div className={styles.breadcrumb}>Katalog properti <span>/</span> {property.type} <span>/</span> {listing.sku}</div>
     <div className={styles.detailLayout}><div className={styles.detailMain}>
     <section className={styles.hero}>
