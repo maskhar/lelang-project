@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans, Source_Serif_4 } from "next/font/google";
+import ChatwootWidget from "@/components/chatwoot-widget";
+import { getChatwootConfig } from "@/server/chatwoot";
 import "./globals.css";
 
 const sans = IBM_Plex_Sans({ subsets: ["latin"], variable: "--font-sans", weight: ["400", "500", "600", "700"] });
@@ -21,5 +23,9 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="id"><body className={`${sans.variable} ${serif.variable} ${mono.variable}`}>{children}</body></html>;
+  // Widget chat dibaca di sini (server) lalu dialirkan sebagai props; null = dimatikan lewat env dan
+  // tidak ada skrip pihak ketiga yang disuntik sama sekali. Ditaruh di root layout supaya bubble-nya
+  // ikut ke dashboard juga — percakapan yang sudah berjalan tidak putus saat pengunjung login.
+  const chatwoot = getChatwootConfig();
+  return <html lang="id"><body className={`${sans.variable} ${serif.variable} ${mono.variable}`}>{children}{chatwoot && <ChatwootWidget config={chatwoot} />}</body></html>;
 }

@@ -59,6 +59,11 @@ services:
       # src/server/contact.ts dan dialirkan ke footer sebagai props, jadi ganti nomor cukup restart
       # container app — tanpa rebuild image. Worker tidak memakainya (payload webhook hanya butuh URL).
       WHATSAPP_NUMBER: ${WHATSAPP_NUMBER:-}
+      # Widget live chat Chatwoot; kosong = default di src/lib/chatwoot.ts, token "off" mematikannya.
+      # Berbeda dari WHATSAPP_NUMBER, mengubah ini BUTUH rebuild image: CSP disusun next.config.ts saat
+      # build, dan izin script/connect/frame/img untuk origin Chatwoot ikut terbaku di sana.
+      CHATWOOT_BASE_URL: ${CHATWOOT_BASE_URL:-}
+      CHATWOOT_WEBSITE_TOKEN: ${CHATWOOT_WEBSITE_TOKEN:-}
       WEBHOOK_SECRET_ENC_KEY: ${WEBHOOK_SECRET_ENC_KEY:-}
     volumes:
       - ${STORAGE_HOST_PATH:?Isi STORAGE_HOST_PATH pada .env.docker.local}:/data/storage
