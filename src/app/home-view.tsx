@@ -178,7 +178,7 @@ function CatalogHome({ contact }: { contact: ContactDetails }) {
             <h1>Cara cepat menemukan penawaran terbaik untuk properti Anda</h1>
             <p>LelanganProperti.my.id mempertemukan pemilik aset dan calon pembeli secara terbuka, cepat, dan kompetitif. Pemilik tetap menentukan transaksi yang disetujui.</p>
             <div className="hero-actions"><a className="button gold" href="#properti">Jelajahi katalog</a><a className="button hero-secondary" href="#jual">Pasarkan properti</a></div>
-            <p className="hero-disclaimer">Katalog mencakup aset pribadi, perusahaan, bank, dan lembaga yang dipasarkan resmi—bukan hanya aset sitaan atau properti bermasalah.</p>
+            <p className="hero-disclaimer">Katalog mencakup aset pribadi, perusahaan, bank, dan lembaga yang dipasarkan resmi—bukan jual, beli, sewa aset sitaan atau properti bermasalah.</p>
             <p className="hero-tagline">Jual lebih cepat. Dapatkan penawaran terbaik. Temukan properti yang tepat.</p>
           </div>
           <aside className="hero-summary" aria-label="Informasi layanan">
