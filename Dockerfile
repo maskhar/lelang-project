@@ -14,6 +14,14 @@ RUN npm ci
 FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+# Origin Chatwoot harus tersedia SAAT BUILD, bukan hanya saat runtime: next.config.ts menyusun
+# Content-Security-Policy dari nilai ini dan Next membakukannya ke .next/routes-manifest.json.
+# Tanpa ARG di sini, mengganti CHATWOOT_BASE_URL di .env.docker.local hanya mengubah src skrip
+# widget sementara CSP tetap mengizinkan origin lama — widget dimuat lalu diblokir browser.
+# docker-compose.yml meneruskan keduanya sebagai build args DAN env runtime.
+ARG CHATWOOT_BASE_URL=
+ARG CHATWOOT_WEBSITE_TOKEN=
+ENV CHATWOOT_BASE_URL=${CHATWOOT_BASE_URL} CHATWOOT_WEBSITE_TOKEN=${CHATWOOT_WEBSITE_TOKEN}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

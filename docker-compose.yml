@@ -32,6 +32,12 @@ services:
     build:
       context: .
       target: runner
+      # Diteruskan ke build, bukan hanya ke runtime: CSP disusun next.config.ts saat `next build` dan
+      # ikut terbaku ke .next/routes-manifest.json. Tanpa ini, mengganti origin Chatwoot hanya mengubah
+      # src skrip widget sementara CSP masih mengizinkan origin lama, sehingga browser memblokirnya.
+      args:
+        CHATWOOT_BASE_URL: ${CHATWOOT_BASE_URL:-}
+        CHATWOOT_WEBSITE_TOKEN: ${CHATWOOT_WEBSITE_TOKEN:-}
     image: project-lelangan-properti-app:latest
     container_name: project-lelangan-properti-app
     restart: unless-stopped
