@@ -8,8 +8,17 @@
 * {
   box-sizing: border-box;
 }
+/* Cadangan untuk lompatan yang tidak lewat scrollToSection() di home-view.tsx (mis. fokus keyboard ke
+   anchor di halaman detail). Nilainya mengikuti tinggi header terukur + 16px napas: 106px di desktop, dan
+   88px di bawah 720px karena di sana nav diganti tombol ☰ sehingga header justru lebih pendek, bukan
+   lebih tinggi. Angka 90px yang lama membuat judul seksi tertutup header 16px di desktop. */
 html {
-  scroll-padding-top: 90px;
+  scroll-padding-top: 122px;
+}
+@media (max-width: 720px) {
+  html {
+    scroll-padding-top: 104px;
+  }
 }
 body {
   margin: 0;
@@ -337,10 +346,19 @@ input[type="radio"] {
   padding: 23px 0;
   gap: 16px;
 }
+/* Kartu angka diberi kotak sendiri supaya kelima nilai terbaca sebagai satu kelompok data, bukan sebagai
+   teks yang mengambang di atas hero. Garis pemisah vertikal dipakai alih-alih border penuh agar tidak
+   menambah bobot visual di atas katalog. */
 .catalog-stats > div {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+  padding-left: 18px;
+  border-left: 1px solid #ffffff2e;
+}
+.catalog-stats > div:first-child {
+  padding-left: 0;
+  border-left: 0;
 }
 .catalog-stats strong {
   font-size: 24px;
@@ -373,12 +391,18 @@ input[type="radio"] {
   border-color: var(--ink);
   color: white;
 }
+/* Toolbar diberi latar dan bingkai supaya keempat kontrol (jenis, tab mode, urutan, kepadatan) terbaca
+   sebagai satu panel filter. Tanpa ini kontrolnya tampak tercecer di antara chips dan baris hasil. */
 .listing-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
 }
 .tabs {
   display: flex;
@@ -420,6 +444,20 @@ input[type="radio"] {
   font-size: 13px;
   color: var(--muted);
   margin: 20px 0;
+}
+/* Sebelumnya .catalog-more tidak punya aturan sama sekali: tombol menempel persis di tepi bawah grid
+   (jarak terukur 0px) dan rata kiri. Sekarang ada napas di atas-bawah dan garis pemisah tipis supaya
+   terbaca sebagai akhir daftar, bukan sebagai kartu lain. */
+.catalog-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 40px;
+  padding-top: 32px;
+  border-top: 1px solid var(--line);
+}
+.catalog-more button {
+  min-width: 220px;
+  min-height: 48px;
 }
 .property-grid {
   display: grid;
@@ -489,6 +527,15 @@ input[type="radio"] {
 .property-card:hover {
   transform: translateY(-3px);
   border-color: var(--gold);
+  box-shadow: 0 6px 20px #14213d1f;
+}
+@media (prefers-reduced-motion: reduce) {
+  .property-card {
+    transition: none;
+  }
+  .property-card:hover {
+    transform: none;
+  }
 }
 /* Link dibentangkan menutupi seluruh kartu; tombol aksi diangkat di atasnya lewat z-index
    supaya klik di gambar atau badan kartu membuka detail, sedangkan klik tombol tidak. */
@@ -572,12 +619,22 @@ input[type="radio"] {
   font-size: 12px;
   color: var(--muted);
 }
+/* Dipotong tepat dua baris, bukan sekadar min-height: judul properti panjangnya sangat bervariasi, dan
+   judul tiga baris membuat kartu di baris yang sama beda tinggi (terukur 101px vs 81px di layar sempit)
+   sehingga garis .meta dan harga tidak sejajar antar-kartu. min-height tetap dipertahankan supaya judul
+   satu baris pun menyisakan ruang yang sama. */
 .property-body h2 {
   font-size: 19px;
   line-height: 1.35;
   font-weight: 600;
   margin: 8px 0 14px;
   min-height: 52px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .meta {
   display: flex;
@@ -1295,5 +1352,22 @@ dialog.modal::backdrop {
   .property-site-header,
   .property-site-footer {
     display: none !important;
+  }
+}
+
+/* Ukuran dan margin kertas ditetapkan: tanpa ini hasil cetak memakai default browser, sehingga brosur
+   yang sama keluar berbeda antara mesin ber-locale A4 dan Letter. */
+@page {
+  size: A4;
+  margin: 14mm 12mm;
+}
+
+/* Blok berlatar gelap (bagian kontak brosur, badge status) dicetak apa adanya. Tanpa aturan ini browser
+   membuang warna latar saat mencetak dan teks putih di atasnya hilang menjadi putih-di-atas-putih.
+   Ditulis di sini, bukan di property-detail.module.css: CSS Module menolak selector global `*`. */
+@media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

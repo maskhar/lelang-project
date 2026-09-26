@@ -65,6 +65,14 @@ export default async function PropertyDetail({ params }: { params: Promise<{ id:
     .slice(0, 3);
 
   return <PropertySiteChrome contact={contact}><main className={styles.page}>
+    {/* Hanya muncul di hasil cetak (display:none di layar, lihat .printHeader/.printFooter di CSS module).
+        Tanpa ini brosur keluar tanpa identitas penerbit dan tanpa kontak sama sekali, karena .contact —
+        satu-satunya blok yang memuat kontak — disembunyikan saat cetak agar form kirim minat yang kosong
+        tidak ikut tercetak. */}
+    <div className={styles.printHeader} aria-hidden="true">
+      <div><b>lelanganproperti.my.id</b><span>Brosur properti · SKU {listing.sku}</span></div>
+      <div><b>{formatRupiah(offer)}</b><span>{property.mode === "lelang" ? "Harga acuan" : "Harga penawaran"}</span></div>
+    </div>
     <div className={styles.breadcrumb}>Katalog properti <span>/</span> {property.type} <span>/</span> {listing.sku}</div>
     <div className={styles.detailLayout}><div className={styles.detailMain}>
     <section className={styles.hero}>
@@ -78,5 +86,11 @@ export default async function PropertyDetail({ params }: { params: Promise<{ id:
       <div className={styles.summary}><span className={property.mode === "lelang" ? styles.lelang : property.mode === "terjual" ? styles.terjual : styles.langsung}>{statusLabel(property.mode)}</span><p className={styles.location}>⌖ {property.city}</p><h1>{property.title}</h1><p className={styles.type}>{property.type}</p><p className={styles.sku}>SKU {listing.sku}</p><div className={styles.priceBox}><span>{property.mode === "lelang" ? "Harga acuan" : "Harga penawaran"}</span><strong>{formatRupiah(offer)}</strong><small>{formatExactRupiah(offer)}</small></div><div className={styles.contactRow}><a className="button dark wide" href="#hubungi">{property.mode === "lelang" ? "Kirim minat" : property.mode === "terjual" ? "Lihat properti serupa" : "Hubungi pemilik"}</a><a className={`button wide ${styles.whatsapp}`} href={whatsappHref} target="_blank" rel="noopener noreferrer" aria-label={`Tanya lewat WhatsApp tentang ${property.title}`}><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12.04 2c-5.46 0-9.9 4.44-9.9 9.9 0 1.75.46 3.45 1.32 4.95L2 22l5.3-1.39a9.86 9.86 0 0 0 4.74 1.21h.01c5.46 0 9.9-4.44 9.9-9.9 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm0 18.02h-.01a8.2 8.2 0 0 1-4.18-1.15l-.3-.18-3.11.82.83-3.03-.2-.31a8.17 8.17 0 0 1-1.26-4.37c0-4.54 3.7-8.23 8.24-8.23 2.2 0 4.27.86 5.82 2.42a8.18 8.18 0 0 1 2.41 5.82c0 4.54-3.7 8.21-8.24 8.21Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.78.97-.15.16-.29.18-.53.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.42l-.48-.01c-.17 0-.43.06-.66.31-.23.25-.86.85-.86 2.07 0 1.21.88 2.39 1.01 2.55.12.17 1.74 2.65 4.21 3.72.59.25 1.05.4 1.4.52.59.19 1.13.16 1.55.1.47-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.15-1.18-.06-.1-.23-.16-.48-.29Z" /></svg>WhatsApp</a></div><PropertyActions id={property.id} title={property.title} /></div>
     </aside></div>
     {recommendations.length > 0 && <section className={styles.recommendations} aria-labelledby="recommendation-title"><div className={styles.recommendationHeading}><div><span>ASET PILIHAN LAINNYA</span><h2 id="recommendation-title">Rekomendasi aset untuk Anda</h2><p>Jelajahi properti serupa berdasarkan jenis aset dan lokasi.</p></div><Link href="/#properti">Lihat semua aset →</Link></div><div className={styles.recommendationGrid}>{recommendations.map((item) => {const image = item.imageUrls?.[0] || item.imageUrl; const itemOffer = item.mode === "lelang" ? item.bid ?? item.price : item.price; return <Link href={`/properti/${item.id}`} className={styles.recommendationCard} key={item.id}><div className={styles.recommendationImage} style={image ? {backgroundImage:`url(${image})`} : undefined}><span className={item.mode === "lelang" ? styles.lelang : item.mode === "terjual" ? styles.terjual : styles.langsung}>{statusLabel(item.mode)}</span>{!image && <b>{item.type}</b>}</div><div className={styles.recommendationBody}><p>⌖ {item.city}</p><h3>{item.title}</h3><div className={styles.recommendationMeta}>{item.land > 0 && <span>LT {item.land.toLocaleString("id-ID")} m²</span>}{item.build > 0 && <span>LB {item.build.toLocaleString("id-ID")} m²</span>}{item.beds > 0 && <span>{item.beds} KT</span>}</div><small>{item.mode === "lelang" ? "Penawaran tertinggi" : "Harga"}</small><strong>{formatRupiah(itemOffer)}</strong></div></Link>})}</div></section>}
+    {/* Kontak di kaki brosur cetak. Nomor dan surel diambil dari getContactDetails(), sumber yang sama
+        dengan tombol WhatsApp dan footer situs, supaya brosur tidak bisa mencantumkan kontak berbeda. */}
+    <div className={styles.printFooter} aria-hidden="true">
+      <div><b>Hubungi pengelola</b><span>{contact.phoneLabel} · {contact.email}</span></div>
+      <div><span>{propertyUrl}</span><span>Dicetak dari lelanganproperti.my.id · Harga dan ketersediaan dapat berubah; konfirmasikan kepada pengelola.</span></div>
+    </div>
   </main></PropertySiteChrome>;
 }

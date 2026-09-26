@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import type { ContactDetails } from "@/lib/contact";
@@ -115,10 +115,22 @@ function CatalogHome({ contact }: { contact: ContactDetails }) {
   const [retryCount, setRetryCount] = useState(0);
   const [startedAt] = useState(0);
   const [now, setNow] = useState(startedAt);
+  // Satu-satunya jalur lompat antar-seksi di beranda. Sebelumnya nav memakai fungsi ini sementara tombol
+  // hero, panel cari, dan footer memakai href="#properti", sehingga URL kadang berakhiran hash dan kadang
+  // tidak tergantung tombol mana yang ditekan. Offset dibaca dari tinggi header yang sebenarnya, bukan dari
+  // angka tetap: header setinggi 106px di desktop dan 148px saat menu membungkus, jadi scroll-padding-top
+  // statis selalu salah di salah satu breakpoint dan judul seksi tertutup header.
   const scrollToSection = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const target = document.getElementById(id);
+    if (!target) return;
+    const header = document.querySelector(".site-header");
+    const offset = (header?.getBoundingClientRect().height ?? 0) + 16;
+    window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - offset, behavior: "smooth" });
     setMenuOpen(false);
   };
+  // Dipakai anchor yang tetap butuh href (agar bisa dibuka di tab baru dan terbaca sebagai tautan), tetapi
+  // tidak boleh meninggalkan hash di URL.
+  const jumpTo = (id: string) => (event: MouseEvent<HTMLAnchorElement>) => { event.preventDefault(); scrollToSection(id); };
 
   const catalogParameters = useCallback((cursor?: string) => {
     const parameters = new URLSearchParams({ limit: "24" });
@@ -175,10 +187,24 @@ function CatalogHome({ contact }: { contact: ContactDetails }) {
     }
   }
   useEffect(() => () => moreController.current?.abort(), []);
+  // Tautan dari halaman lain (login, kebijakan, detail properti) tetap perlu hash supaya mendarat di seksi
+  // yang benar. Setelah mendarat, hash dihapus dari URL agar alamat yang tersisa di address bar sama dengan
+  // hasil klik nav di halaman ini. replaceState dipakai, bukan router.replace: mengganti URL lewat router
+  // memicu render ulang dan melompatkan posisi scroll yang baru saja diatur.
+  useEffect(() => {
+    if (!window.location.hash) return;
+    const id = window.location.hash.slice(1);
+    const timer = window.setTimeout(() => {
+      scrollToSection(id);
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }, 80);
+    return () => window.clearTimeout(timer);
+    // Sekali saat mount saja: hash hanya bermakna sebagai titik masuk dari halaman lain.
+  }, []);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30000); return () => window.clearInterval(timer); }, []);
   return <>
     <header className="site-header home-header">
-      <a className="brand" href="#top" aria-label="Lelangan Properti — Beranda"><Image className="brand-logo" src="/image/logo/white/LP-logo-large-white.png" alt="Lelangan Properti" width={1944} height={809} sizes="(max-width: 720px) 140px, 165px" priority /></a>
+      <a className="brand" href="#top" onClick={(event) => { event.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); setMenuOpen(false); }} aria-label="Lelangan Properti — Beranda"><Image className="brand-logo" src="/image/logo/white/LP-logo-large-white.png" alt="Lelangan Properti" width={1944} height={809} sizes="(max-width: 720px) 140px, 165px" priority /></a>
       <button className="menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label="Buka menu" aria-expanded={menuOpen}>☰</button>
       <nav className={menuOpen ? "nav open" : "nav"} aria-label="Navigasi utama">
         <button type="button" onClick={() => scrollToSection("properti")}>Cari Properti</button><button type="button" onClick={() => scrollToSection("cara-kerja")}>Cara Kerja</button><button type="button" onClick={() => scrollToSection("jual")}>Jual Properti</button><button type="button" onClick={() => scrollToSection("kontak")}>Kontak</button><a href={authenticated ? "/dashboard" : "/login"}>{authenticated ? "Dashboard" : "Login"}</a>
@@ -193,7 +219,7 @@ function CatalogHome({ contact }: { contact: ContactDetails }) {
             <span className="eyebrow">KATALOG LELANG & JUAL BELI PROPERTI</span>
             <h1>Cara cepat menemukan penawaran terbaik untuk properti Anda</h1>
             <p>LelanganProperti.my.id mempertemukan pemilik aset dan calon pembeli secara terbuka, cepat, dan kompetitif. Pemilik tetap menentukan transaksi yang disetujui.</p>
-            <div className="hero-actions"><a className="button gold" href="#properti">Jelajahi katalog</a><a className="button hero-secondary" href="#jual">Pasarkan properti</a></div>
+            <div className="hero-actions"><a className="button gold" href="#properti" onClick={jumpTo("properti")}>Jelajahi katalog</a><a className="button hero-secondary" href="#jual" onClick={jumpTo("jual")}>Pasarkan properti</a></div>
             <p className="hero-disclaimer">Katalog mencakup aset pribadi, perusahaan, bank, dan lembaga yang dipasarkan resmi—bukan jual, beli, sewa aset sitaan atau properti bermasalah.</p>
             <p className="hero-tagline">Jual lebih cepat. Dapatkan penawaran terbaik. Temukan properti yang tepat.</p>
           </div>
@@ -210,7 +236,7 @@ function CatalogHome({ contact }: { contact: ContactDetails }) {
           <label><span>Kata kunci properti</span><input value={query} onChange={(event) => setQuery(event.target.value)} maxLength={100} placeholder="Rumah 2 lantai..." /></label>
           <label><span>Jenis properti</span><select value={type} onChange={(event) => setType(event.target.value)}><option value="">Semua jenis</option>{propertyTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
           <label><span>Rentang harga</span><select value={price} onChange={(event) => setPrice(event.target.value)}><option value="">Semua harga</option><option value="low">Di bawah Rp 500 jt</option><option value="mid">Rp 500 jt – 1 M</option><option value="high">Rp 1 M – 3 M</option><option value="premium">Di atas Rp 3 M</option></select></label>
-          <a className="button dark" href="#properti">Cari Properti</a>
+          <a className="button dark" href="#properti" onClick={jumpTo("properti")}>Cari Properti</a>
         </div>
         <div className="stats catalog-stats" aria-live="polite" aria-label="Jumlah properti dalam katalog">
           <div><strong>{catalogCounts ? catalogCounts.all.toLocaleString("id-ID") : "—"}</strong><span>Total properti</span></div>
@@ -244,7 +270,7 @@ function CatalogHome({ contact }: { contact: ContactDetails }) {
       <section className="seller" id="jual"><div><span className="eyebrow">UNTUK PEMILIK ASET</span><h2>Punya properti untuk dijual atau dilelang?</h2><p>Masuk ke dashboard untuk membuat draft, menambahkan foto, dan mengirim properti ke proses review.</p></div><Link className="button light" href="/dashboard/properties">Daftarkan Properti</Link></section>
     </main>
 
-    <footer id="kontak" className="home-footer"><div><Image src="/image/logo/color/LP-logo-large-color.png" alt="Lelang Properti" width={1944} height={809} className="footer-logo" /><p>Platform pencarian dan transaksi properti dengan proses transparan.</p></div><div><b>Jelajahi</b><a href="#properti">Cari Properti</a><a href="#cara-kerja">Cara Kerja</a></div><div><b>Kontak</b><a href={"mailto:" + contact.email}>{contact.email}</a><a href={"tel:" + contact.phoneHref}>{contact.phoneLabel}</a><Link href="/kebijakan-privasi">Kebijakan Privasi</Link><Link href="/syarat-dan-ketentuan">Syarat dan Ketentuan</Link></div><small>© 2026 Lelang Properti</small></footer>
+    <footer id="kontak" className="home-footer"><div><Image src="/image/logo/color/LP-logo-large-color.png" alt="Lelang Properti" width={1944} height={809} className="footer-logo" /><p>Platform pencarian dan transaksi properti dengan proses transparan.</p></div><div><b>Jelajahi</b><a href="#properti" onClick={jumpTo("properti")}>Cari Properti</a><a href="#cara-kerja" onClick={jumpTo("cara-kerja")}>Cara Kerja</a></div><div><b>Kontak</b><a href={"mailto:" + contact.email}>{contact.email}</a><a href={"tel:" + contact.phoneHref}>{contact.phoneLabel}</a><Link href="/kebijakan-privasi">Kebijakan Privasi</Link><Link href="/syarat-dan-ketentuan">Syarat dan Ketentuan</Link></div><small>© 2026 Lelang Properti</small></footer>
 
     {notice && <div className="demo-notice" role="status">{notice}<button aria-label="Tutup pemberitahuan" onClick={() => setNotice("")}>×</button></div>}
   </>;
