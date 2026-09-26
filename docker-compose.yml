@@ -74,7 +74,7 @@ services:
     volumes:
       - ${STORAGE_HOST_PATH:?Isi STORAGE_HOST_PATH pada .env.docker.local}:/data/storage
     ports:
-      - "127.0.0.1:${APP_PORT:-3009}:3000"
+      - "127.0.0.1:${APP_PORT:-3008}:3000"
     networks:
       - internal
       - carubra-network
