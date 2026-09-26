@@ -14,7 +14,8 @@ import { csrfHeaders } from "@/components/csrf";
 
 function money(value: number) { return formatRupiah(value); }
 function remaining(end: number, now: number) { const diff = end - now; if (diff <= 0) return "Lelang berakhir"; const hours = Math.floor(diff / 3600000); const minutes = Math.floor((diff % 3600000) / 60000); return hours >= 24 ? `${Math.floor(hours / 24)} hari ${hours % 24} jam` : `${hours} jam ${minutes} menit`; }
-type CatalogResponse = { items: PublicListing[]; nextCursor: string | null };
+type CatalogCounts = { all: number; auction: number; directSale: number; rent: number; other: number; available: number; sold: number };
+type CatalogResponse = { items: PublicListing[]; nextCursor: string | null; counts: CatalogCounts };
 type Density = "large" | "medium" | "small";
 const densityKey = "catalog-grid-density";
 // Pola sama dengan PropertyActions di halaman detail: dengar event storage (tab lain) plus event kustom
@@ -46,6 +47,7 @@ function CatalogHome({ contact }: { contact: ContactDetails }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [catalogProperties, setCatalogProperties] = useState<Property[]>([]);
+  const [catalogCounts, setCatalogCounts] = useState<CatalogCounts | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -103,7 +105,10 @@ function CatalogHome({ contact }: { contact: ContactDetails }) {
       else { await navigator.clipboard.writeText(url); setNotice("Tautan properti disalin."); }
     } catch (error) { if (!(error instanceof Error && error.name === "AbortError")) setNotice("Gagal membagikan. Salin alamat properti dari browser."); }
   }
-  const requestController = useRef<AbortController | null>(null);
+  // Dua controller terpisah untuk dua permintaan berbeda. Sebelumnya loadMore() memakai ulang controller
+  // milik efek katalog, padahal cleanup efek itu memanggil abort() — begitu efek dibersihkan, klik pertama
+  // "Muat lebih banyak" langsung keluar di penjaga signal.aborted tanpa memanggil API dan tanpa pesan.
+  const moreController = useRef<AbortController | null>(null);
   const moreLock = useRef(false);
   const [loadedKey, setLoadedKey] = useState("");
   const [catalogError, setCatalogError] = useState("");
@@ -131,34 +136,45 @@ function CatalogHome({ contact }: { contact: ContactDetails }) {
 
   const parametersKey = catalogParameters().toString();
   const pending = loading || loadedKey !== parametersKey;
+  // counts sengaja mengabaikan saleMode supaya angka tiap tab tetap terlihat; baris "Menampilkan x dari y"
+  // butuh angka yang cocok filter aktif, jadi tab yang dipilih dibaca dari pecahan modenya.
+  const matchingTotal = !catalogCounts ? null : mode === "lelang" ? catalogCounts.auction : mode === "langsung" ? catalogCounts.directSale : catalogCounts.all;
 
   useEffect(() => {
     const controller = new AbortController();
-    requestController.current = controller;
+    // Hasil halaman tambahan dari filter lama tidak boleh menempel sesudah filter berubah. Blok finally
+    // di loadMore() yang melepas moreLock dan loadingMore, jadi di sini cukup membatalkan.
+    moreController.current?.abort();
     const timer = window.setTimeout(() => {
       setLoading(true);
       setCatalogError("");
       apiRequest<CatalogResponse>("/api/v1/properties?" + catalogParameters(), { cache: "no-store", signal: controller.signal })
-        .then((data) => { if (!controller.signal.aborted) { setCatalogProperties(data.items.map(catalogView)); setNextCursor(data.nextCursor); setLoadedKey(parametersKey); } })
-        .catch(() => { if (!controller.signal.aborted) { setCatalogProperties([]); setNextCursor(null); setLoadedKey(parametersKey); setCatalogError("Katalog belum dapat dimuat. Coba lagi."); } })
+        .then((data) => { if (!controller.signal.aborted) { setCatalogProperties(data.items.map(catalogView)); setCatalogCounts(data.counts); setNextCursor(data.nextCursor); setLoadedKey(parametersKey); } })
+        .catch(() => { if (!controller.signal.aborted) { setCatalogProperties([]); setCatalogCounts(null); setNextCursor(null); setLoadedKey(parametersKey); setCatalogError("Katalog belum dapat dimuat. Coba lagi."); } })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     }, 300);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [catalogParameters, parametersKey, retryCount]);
 
   async function loadMore() {
-    const controller = requestController.current;
-    if (!nextCursor || pending || moreLock.current || !controller || controller.signal.aborted) return;
+    if (!nextCursor || pending || moreLock.current) return;
+    const controller = new AbortController();
+    moreController.current = controller;
     moreLock.current = true;
     setLoadingMore(true);
     try {
       const data = await apiRequest<CatalogResponse>("/api/v1/properties?" + catalogParameters(nextCursor), { cache: "no-store", signal: controller.signal });
       if (controller.signal.aborted) return;
-      setCatalogProperties((current) => Array.from(new Map([...current, ...data.items.map(catalogView)].map((item) => [item.id, item])).values()));
+      setCatalogProperties((current) => Array.from(new Map([...current, ...data.items.map(catalogView)].map((item) => [item.propertyId, item])).values()));
       setNextCursor(data.nextCursor);
     } catch { if (!controller.signal.aborted) setNotice("Properti berikutnya belum dapat dimuat. Coba lagi."); }
-    finally { moreLock.current = false; setLoadingMore(false); }
+    finally {
+      if (moreController.current === controller) moreController.current = null;
+      moreLock.current = false;
+      setLoadingMore(false);
+    }
   }
+  useEffect(() => () => moreController.current?.abort(), []);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30000); return () => window.clearInterval(timer); }, []);
   return <>
     <header className="site-header home-header">
@@ -196,7 +212,13 @@ function CatalogHome({ contact }: { contact: ContactDetails }) {
           <label><span>Rentang harga</span><select value={price} onChange={(event) => setPrice(event.target.value)}><option value="">Semua harga</option><option value="low">Di bawah Rp 500 jt</option><option value="mid">Rp 500 jt – 1 M</option><option value="high">Rp 1 M – 3 M</option><option value="premium">Di atas Rp 3 M</option></select></label>
           <a className="button dark" href="#properti">Cari Properti</a>
         </div>
-        <div className="stats"><div><strong>LELANG</strong><span>pemasaran kompetitif</span></div><div><strong>JUAL</strong><span>penawaran langsung</span></div><div><strong>TERPILIH</strong><span>aset yang telah ditinjau</span></div><div><strong>TERBUKA</strong><span>informasi aset pendukung</span></div></div>
+        <div className="stats catalog-stats" aria-live="polite" aria-label="Jumlah properti dalam katalog">
+          <div><strong>{catalogCounts ? catalogCounts.all.toLocaleString("id-ID") : "—"}</strong><span>Total properti</span></div>
+          <div><strong>{catalogCounts ? catalogCounts.auction.toLocaleString("id-ID") : "—"}</strong><span>Lelang</span></div>
+          <div><strong>{catalogCounts ? catalogCounts.directSale.toLocaleString("id-ID") : "—"}</strong><span>Jual langsung</span></div>
+          <div><strong>{catalogCounts ? catalogCounts.rent.toLocaleString("id-ID") : "—"}</strong><span>Sewa belum tersedia</span></div>
+          <div><strong>{catalogCounts ? catalogCounts.other.toLocaleString("id-ID") : "—"}</strong><span>Lainnya</span></div>
+        </div>
       </section>
 
       <section className="property-section" id="properti">
@@ -204,7 +226,7 @@ function CatalogHome({ contact }: { contact: ContactDetails }) {
             (tujuh chip di layar sempit membungkus jadi tiga baris). Hanya satu yang tampil per breakpoint. */}
         <div className="chips" aria-label="Filter jenis properti"><button className={!type ? "active" : ""} onClick={() => setType("")}>Semua</button>{propertyTypes.map((item) => <button className={type === item ? "active" : ""} onClick={() => setType(item)} key={item}>{item}</button>)}</div>
         <div className="listing-toolbar"><label className="sort type-sort">Jenis <select value={type} onChange={(event) => setType(event.target.value)}><option value="">Semua jenis</option>{propertyTypes.map((item) => <option value={item} key={item}>{item}</option>)}</select></label><div className="tabs"><button className={!mode ? "active" : ""} onClick={() => setMode("")}>Semua</button><button className={mode === "lelang" ? "active" : ""} onClick={() => setMode("lelang")}>Lelang</button><button className={mode === "langsung" ? "active" : ""} onClick={() => setMode("langsung")}>Jual Langsung</button></div><label className="sort">Urutkan <select value={sort} onChange={(event) => setSort(event.target.value)}><option value="terbaru">Terbaru</option><option value="harga-asc">Harga terendah</option><option value="harga-desc">Harga tertinggi</option><option value="berakhir">Segera berakhir</option></select></label><label className="sort density-sort">Tampilan <select value={density} onChange={(event) => writeDensity(event.target.value as Density)}><option value="large">Besar (3 kolom)</option><option value="medium">Sedang (4 kolom)</option><option value="small">Kecil (5 kolom)</option></select></label></div>
-        <p className="result-count" aria-live="polite">{pending ? "Memuat properti…" : `Menampilkan ${catalogProperties.length} properti yang dimuat`}</p>
+        <p className="result-count" aria-live="polite">{pending ? "Memuat properti…" : matchingTotal === null ? `Menampilkan ${catalogProperties.length} properti yang dimuat` : `Menampilkan ${catalogProperties.length.toLocaleString("id-ID")} dari ${matchingTotal.toLocaleString("id-ID")} properti yang cocok`}</p>
         {catalogError && !pending && <div className="empty" role="alert"><p>{catalogError}</p><button type="button" className="button dark" onClick={() => { setLoading(true); setRetryCount((count) => count + 1); }}>Coba lagi</button></div>}
         {!pending && catalogProperties.length ? <><div className="property-grid" data-density={density}>{catalogProperties.map((item) => {
           const end = item.auctionEndsAt ? Date.parse(item.auctionEndsAt) : startedAt;

@@ -66,6 +66,11 @@ async function main() {
     assert.deepEqual((await publicListing(created.property.slug)).amenities, ["bandara", "bank"]);
     const page = await catalog(new URLSearchParams({ city: "Malang", sort: "price_asc", limit: "1" }));
     assert.equal(page.items.length, 1); assert.equal(page.items[0].id, propertyId);
+    assert.deepEqual(page.counts, { all: 1, auction: 0, directSale: 1, rent: 0, other: 0, available: 1, sold: 0 });
+    // Agregat tidak ikut limit maupun filter tab: statistik tetap menerangkan seluruh hasil pencarian.
+    const directPage = await catalog(new URLSearchParams({ city: "Malang", saleMode: "direct_sale", limit: "1" }));
+    assert.equal(directPage.counts.all, 1); assert.equal(directPage.counts.directSale, 1);
+    assert.equal(directPage.counts.auction + directPage.counts.directSale + directPage.counts.rent + directPage.counts.other, directPage.counts.all);
     await assert.rejects(catalog(new URLSearchParams({ cursor: "invalid" })), (error) => error.code === "INVALID_CURSOR");
     const lead = await createLead({ propertyId, name: "Pengunjung", email: "visitor@example.invalid", consent: true });
     assert.ok(lead.id);
@@ -119,16 +124,16 @@ async function main() {
     await assert.rejects(markListingAvailable(actor, propertyId, { version: restored.version, reason: "Sudah tersedia" }), (error) => error instanceof AuthHttpError && error.code === "INVALID_TRANSITION");
     const revised = await editListing(actor, propertyId, restored.version, { ...listing, askingPrice: 990000000 });
     assert.equal((await publicListing(created.property.slug)).askingPrice, listing.askingPrice);
-    // Foto "ready" ikut ke revisi baru: baris DB baru (id dan object_path sendiri) dengan isi file sama,
-    // sehingga edit teks/harga tidak lagi memaksa upload ulang dan approve tidak kena MEDIA_NOT_READY.
+    // Foto "ready" ikut ke revisi baru sebagai baris DB baru yang menunjuk file fisik sama. Dengan begitu
+    // edit teks/harga tidak memaksa upload ulang dan approve tidak kena MEDIA_NOT_READY tanpa menduplikasi file.
     const carried = await client.query("select id,object_path,checksum_sha256,is_cover,sort_order,status from app.property_media where revision_id=$1", [revised.revision.id]);
     assert.equal(carried.rows.length, 1, "Satu foto ready disalin ke revisi baru");
     assert.equal(carried.rows[0].status, "ready"); assert.equal(carried.rows[0].is_cover, true);
     const origin = await client.query("select object_path,checksum_sha256 from app.property_media where id=$1", [mediaId]);
     assert.equal(carried.rows[0].checksum_sha256, origin.rows[0].checksum_sha256, "Isi foto identik dengan revisi sebelumnya");
-    assert.notEqual(carried.rows[0].id, mediaId); assert.notEqual(carried.rows[0].object_path, origin.rows[0].object_path, "object_path unik per baris");
-    assert.deepEqual(await readPublic(carried.rows[0].object_path), await readPublic(origin.rows[0].object_path), "File fisik hasil salinan byte-identik");
-    assert.equal((await client.query("select metadata->>'mediaCopied' as copied from app.audit_logs where entity_id=$1 and action='property.edited' order by created_at desc limit 1", [propertyId])).rows[0].copied, "1");
+    assert.notEqual(carried.rows[0].id, mediaId); assert.equal(carried.rows[0].object_path, origin.rows[0].object_path, "Revisi berbagi file fisik yang sama");
+    assert.deepEqual(await readPublic(carried.rows[0].object_path), await readPublic(origin.rows[0].object_path), "File fisik bersama dapat dibaca dari kedua revisi");
+    assert.equal((await client.query("select metadata->>'mediaShared' as shared from app.audit_logs where entity_id=$1 and action='property.edited' order by created_at desc limit 1", [propertyId])).rows[0].shared, "1");
     const concurrent = await Promise.allSettled([editListing(actor, propertyId, revised.version, listing), editListing(actor, propertyId, revised.version, listing)]);
     assert.equal(concurrent.filter((result) => result.status === "fulfilled").length, 1);
     assert.equal(concurrent.filter((result) => result.status === "rejected" && result.reason.code === "VERSION_CONFLICT").length, 1);
