@@ -104,7 +104,7 @@ export default function EditorPage({ params }: { params: Promise<{ id: string }>
         <div className={styles.grid}>
           <section className={styles.panel}>
             <div className={styles.panelHead}><h2>Data listing</h2>{locked && <span className={styles.badge} data-status="pending">Terkunci</span>}</div>
-            <p>Setiap simpan membuat revisi baru. Foto siap dari revisi sebelumnya otomatis disalin ke revisi baru ini; foto yang baru diunggah tetap perlu diverifikasi sebelum review. Snapshot publik lama tetap tampil sampai disetujui.</p>
+            <p>Setiap simpan membuat revisi baru. Foto siap dari revisi sebelumnya otomatis digunakan ulang di revisi baru ini; foto yang baru diunggah tetap perlu diverifikasi sebelum review. Snapshot publik lama tetap tampil sampai disetujui.</p>
             {detail.property.publishedRevisionId && revision.id !== detail.property.publishedRevisionId && (
               <p role="status" className={styles.notice}>Revisi ini belum tayang publik — situs masih menampilkan versi lama. Klik &quot;Kirim review&quot; agar perubahan tampil.</p>
             )}

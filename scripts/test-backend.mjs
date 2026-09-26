@@ -14,7 +14,7 @@ async function main() {
   process.env.AUTH_CSRF_SECRET = "a".repeat(64);
   process.env.AUTH_RATE_LIMIT_SECRET = "b".repeat(64);
   process.env.WEBHOOK_SECRET_ENC_KEY = "c".repeat(64);
-  const { createListing, editListing, transitionListing, createLead, publicListing, markListingSold, markListingAvailable } = await import("../src/server/properties/service.ts");
+  const { createListing, editListing, transitionListing, createLead, publicListing, markListingSold, markListingAvailable, propertyAuditTrail } = await import("../src/server/properties/service.ts");
   const { AuthHttpError } = await import("../src/server/auth/http.ts");
   const { AuthorizationError } = await import("../src/server/auth/actor.ts");
   const { setRole, setAccountStatus } = await import("../src/server/auth/admin-users.ts");
@@ -127,13 +127,22 @@ async function main() {
     // Foto "ready" ikut ke revisi baru sebagai baris DB baru yang menunjuk file fisik sama. Dengan begitu
     // edit teks/harga tidak memaksa upload ulang dan approve tidak kena MEDIA_NOT_READY tanpa menduplikasi file.
     const carried = await client.query("select id,object_path,checksum_sha256,is_cover,sort_order,status from app.property_media where revision_id=$1", [revised.revision.id]);
-    assert.equal(carried.rows.length, 1, "Satu foto ready disalin ke revisi baru");
+    assert.equal(carried.rows.length, 1, "Satu foto ready digunakan ulang di revisi baru");
     assert.equal(carried.rows[0].status, "ready"); assert.equal(carried.rows[0].is_cover, true);
     const origin = await client.query("select object_path,checksum_sha256 from app.property_media where id=$1", [mediaId]);
     assert.equal(carried.rows[0].checksum_sha256, origin.rows[0].checksum_sha256, "Isi foto identik dengan revisi sebelumnya");
     assert.notEqual(carried.rows[0].id, mediaId); assert.equal(carried.rows[0].object_path, origin.rows[0].object_path, "Revisi berbagi file fisik yang sama");
     assert.deepEqual(await readPublic(carried.rows[0].object_path), await readPublic(origin.rows[0].object_path), "File fisik bersama dapat dibaca dari kedua revisi");
     assert.equal((await client.query("select metadata->>'mediaShared' as shared from app.audit_logs where entity_id=$1 and action='property.edited' order by created_at desc limit 1", [propertyId])).rows[0].shared, "1");
+    // Lewat propertyAuditTrail(), bukan hanya baca kolom mentah: asersi metadata saja tidak melihat kunci
+    // yang dibaca pembaca, sehingga penulis mediaShared vs pembaca mediaCopied pernah lolos tanpa terdeteksi
+    // dan baris foto di popup Log tidak pernah tampil.
+    assert.equal((await propertyAuditTrail(actor, propertyId)).find((entry) => entry.action === "property.edited")?.mediaShared, 1);
+    // Baris audit lama memakai ejaan mediaCopied dan tidak bisa diperbaiki di tempat: UPDATE pada audit_logs
+    // dicabut dari role runtime, jadi pembaca wajib menerima kedua ejaan.
+    await client.query("insert into app.audit_logs(action,entity_type,entity_id,metadata) values('property.edited','property',$1,$2)", [propertyId, JSON.stringify({ revisionId: revised.revision.id, mediaCopied: 3 })]);
+    assert.equal((await propertyAuditTrail(actor, propertyId)).find((entry) => entry.mediaShared === 3)?.action, "property.edited", "Ejaan lama mediaCopied tetap terbaca");
+    await client.query("delete from app.audit_logs where entity_id=$1 and metadata->>'mediaCopied' is not null", [propertyId]);
     const concurrent = await Promise.allSettled([editListing(actor, propertyId, revised.version, listing), editListing(actor, propertyId, revised.version, listing)]);
     assert.equal(concurrent.filter((result) => result.status === "fulfilled").length, 1);
     assert.equal(concurrent.filter((result) => result.status === "rejected" && result.reason.code === "VERSION_CONFLICT").length, 1);
@@ -214,7 +223,7 @@ async function main() {
     assert.deepEqual(adminAudit.rows.map((row) => row.action).sort(), ["admin.account.disabled", "admin.account.enabled", "admin.role.granted", "admin.role.revoked"]);
     await client.query("delete from app.audit_logs where entity_id=$1", [targetId]);
     await client.query("delete from app.profiles where id=$1", [targetId]);
-    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, salin foto ready antar-revisi, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, webhook retry, dead-letter, checksum rejection, admin role/status management + SELF_LOCKOUT, webhook lead terkirim + tanda tangan HMAC + gate enabled, sold/available dua arah.");
+    console.log("PASS: draft/edit/concurrency/review/publish/archive, decoded media/idempotency, penggunaan ulang foto ready antar-revisi + audit metadata lama/baru, public snapshot isolation, catalog filters/cursor rejection, leads, audit/outbox, webhook retry, dead-letter, checksum rejection, admin role/status management + SELF_LOCKOUT, webhook lead terkirim + tanda tangan HMAC + gate enabled, sold/available dua arah.");
   } finally {
     if (hookServer) await new Promise((resolve) => hookServer.close(resolve));
     await client.query("delete from app.webhook_endpoints where name in ('lead_notification','staff_notification')").catch(() => undefined);

@@ -4,7 +4,7 @@ import { apiRequest, ApiClientError } from "./api-client";
 import styles from "@/app/dashboard/dashboard-shell.module.css";
 
 type Change = { label: string; before: string; after: string };
-type Entry = { id: string; createdAt: string; actorName: string | null; actorEmail: string | null; action: string; actionLabel: string; reason: string | null; bulk: boolean; mediaCopied: number | null; changes: Change[] };
+type Entry = { id: string; createdAt: string; actorName: string | null; actorEmail: string | null; action: string; actionLabel: string; reason: string | null; bulk: boolean; mediaShared: number | null; changes: Change[] };
 const timestamp = (value: string) => new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(new Date(value)) + " WIB";
 
 // Tombol + popup riwayat aktivitas satu properti: siapa, kapan, aksi apa, dan field mana yang berubah.
@@ -56,7 +56,7 @@ export default function PropertyAuditLog({ propertyId, title }: { propertyId: st
             <span><span className={styles.auditWho}>{entry.actorName || entry.actorEmail || "Sistem"}</span> · {entry.actionLabel}{entry.bulk ? " (operasi massal)" : ""}</span>
             {entry.actorEmail && entry.actorName && <p className={styles.auditReason}>{entry.actorEmail}</p>}
             {entry.reason && <p className={styles.auditReason}>Alasan: {entry.reason}</p>}
-            {entry.mediaCopied ? <p className={styles.auditReason}>{entry.mediaCopied} foto disalin dari revisi sebelumnya.</p> : null}
+            {entry.mediaShared ? <p className={styles.auditReason}>{entry.mediaShared} foto digunakan ulang dari revisi sebelumnya.</p> : null}
             {entry.changes.length > 0 && <ul className={styles.auditChanges}>
               {entry.changes.map((change) => <li key={change.label}><b>{change.label}</b><span>{change.before} → {change.after}</span></li>)}
             </ul>}

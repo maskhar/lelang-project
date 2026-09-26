@@ -216,11 +216,15 @@ export async function propertyAuditTrail(actor: Actor, id: string) {
   const byId = new Map(revisions.map((row) => [row.id, row] as const));
   const byNumber = new Map(revisions.map((row) => [row.revisionNumber, row] as const));
   return logs.map((log) => {
-    const metadata = (log.metadata ?? {}) as { revisionId?: string; mediaCopied?: number; reason?: string | null; bulk?: boolean };
+    // Dua ejaan dibaca sekaligus, bukan satu: audit_logs tidak pernah di-UPDATE (hak itu dicabut di
+    // scripts/grant-runtime.sql), jadi baris lama tetap menyimpan mediaCopied sementara penulis sekarang
+    // menulis mediaShared. Membaca satu ejaan saja menghilangkan baris foto di salah satu sisi sejarah.
+    const metadata = (log.metadata ?? {}) as { revisionId?: string; mediaShared?: number; mediaCopied?: number; reason?: string | null; bulk?: boolean };
+    const mediaShared = typeof metadata.mediaShared === "number" ? metadata.mediaShared : typeof metadata.mediaCopied === "number" ? metadata.mediaCopied : null;
     let changes: { label: string; before: string; after: string }[] = [];
     if (log.action === "property.created") { const first = byNumber.get(1); if (first) changes = diffRevisions(undefined, first); }
     else if (log.action === "property.edited" && metadata.revisionId) { const after = byId.get(metadata.revisionId); if (after) changes = diffRevisions(byNumber.get(after.revisionNumber - 1), after); }
-    return { id: log.id, createdAt: log.createdAt, actorName: log.actorName, actorEmail: log.actorEmail, action: log.action, actionLabel: propertyActionLabels[log.action] ?? log.action, reason: metadata.reason ?? null, bulk: Boolean(metadata.bulk), mediaCopied: typeof metadata.mediaCopied === "number" ? metadata.mediaCopied : null, changes };
+    return { id: log.id, createdAt: log.createdAt, actorName: log.actorName, actorEmail: log.actorEmail, action: log.action, actionLabel: propertyActionLabels[log.action] ?? log.action, reason: metadata.reason ?? null, bulk: Boolean(metadata.bulk), mediaShared, changes };
   });
 }
 
