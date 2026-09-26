@@ -25,37 +25,18 @@
 .publicationInfo{display:flex;flex-wrap:wrap;justify-content:space-between;gap:14px;margin-top:24px;color:var(--muted);font-size:13px}.publicationInfo small{display:block;margin-top:4px}.content article{min-width:0}.descriptionCard,.specificationCard{background:white;border:1px solid var(--line);border-radius:9px;padding:24px;margin-bottom:24px}.descriptionCard p{white-space:pre-line;overflow-wrap:anywhere;color:var(--muted)}.assetSpecs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin:0}.assetSpecs div{border-bottom:1px solid var(--line);padding-bottom:14px}.assetSpecs dt{color:var(--muted);font-size:12px}.assetSpecs dd{margin:6px 0 0;color:var(--ink);font-weight:600;overflow-wrap:anywhere}/* Dipisahkan dari tombol Hubungi/WhatsApp dengan garis: ketiganya aksi sekunder (simpan lokal, salin
    tautan, cetak), bukan jalur kontak, dan sebelumnya menempel 18px di bawah tombol utama tanpa pembeda. */
 .assetActions{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}.assetActions>div{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.assetActions button{min-height:44px;padding:0 6px;background:white;border:1px solid var(--line);border-radius:6px;color:var(--ink);font-weight:600;font-size:13px}.assetActions button:hover{border-color:var(--ink);background:#f6f4ef}.assetActions button[aria-pressed=true]{background:#e7f0ea}.assetActions button:focus-visible{outline:3px solid var(--ink);outline-offset:2px}.assetActions p{font-size:12px;color:var(--muted)}@media(max-width:600px){.assetSpecs{grid-template-columns:repeat(2,minmax(0,1fr))}.descriptionCard,.specificationCard{padding:18px}}
-/* Blok brosur khusus cetak: tidak pernah tampil di layar. */
-.printHeader,.printFooter{display:none}
-
-/* Aturan cetak brosur. Yang disembunyikan hanya elemen yang tidak punya arti di atas kertas: tombol,
-   kontrol carousel, form kirim minat, dan kartu rekomendasi ke properti lain. Sebelumnya .amenities,
-   .locationMap, dan .imageGrid juga disembunyikan sehingga brosur keluar tanpa fasilitas, tanpa alamat,
-   dan hanya dengan satu foto — sekarang ketiganya dipertahankan, dan kontak pindah ke .printFooter. */
+/* Halaman ini tidak lagi punya aturan @media print untuk brosur. Mencetak halaman detail berarti
+   mencetak tata letak layar dengan sebagian elemen disembunyikan, dan hasilnya terbaca seperti tangkapan
+   layar. Brosur sekarang punya halaman sendiri dengan tata letak kertas: src/app/properti/[id]/brosur/.
+   Yang tersisa hanya penyesuaian kecil di bawah supaya mencetak halaman detail secara langsung
+   (Ctrl+P di browser) tetap menghasilkan sesuatu yang terbaca. */
 @media print{
-  /* .contact ikut disembunyikan: isinya yang berguna di atas kertas hanya nomor kontak, dan itu sudah ada
-     di .printFooter. Kalau hanya form dan tombolnya yang disembunyikan, yang tersisa di kertas adalah
-     judul "Kirim minat kepada pengelola" tanpa apa pun di bawahnya. */
-  .header,.breadcrumb,.assetActions,.carouselControls,.contactRow,.recommendations,.contact{display:none!important}
+  .header,.breadcrumb,.assetActions,.carouselControls,.contactRow,.recommendations{display:none!important}
+  .contact form,.contact .button{display:none!important}
   .page{max-width:none;padding:0}
   .hero,.content{display:block}
-  .summary{display:block;margin-top:16px;border:0;padding:0}
-  .gallery .mainImage{height:260px}
-  /* Empat foto pendukung dipertahankan, tetapi dipotong lebih pendek agar muat satu baris di kertas. */
-  .imageGrid{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px}
-  .smallImage{height:92px}
   .locationMap iframe{display:none}
-  .verification{display:none}
   .descriptionCard,.specificationCard,.summary,.amenities,.locationMap{break-inside:avoid}
-  .publicationInfo{font-size:10px}
-  .printHeader{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding-bottom:10px;margin-bottom:14px;border-bottom:2px solid var(--ink)}
-  .printHeader b{display:block;font:600 17px var(--font-serif),serif;color:var(--ink)}
-  .printHeader span{font-size:10px;color:var(--muted)}
-  .printHeader>div:last-child{text-align:right}
-  .printFooter{display:flex;justify-content:space-between;gap:16px;margin-top:18px;padding-top:10px;border-top:1px solid var(--line);font-size:10px;color:var(--muted)}
-  .printFooter b{display:block;color:var(--ink)}
-  .printFooter span{display:block}
-  .printFooter>div:last-child{text-align:right;max-width:58%}
 }
 
 /* Ukuran kertas (@page) dan pemaksaan warna cetak (selector `*`) ada di globals.css, bukan di sini:
@@ -63,7 +44,12 @@
 
 @media(min-width:901px){.summary{position:sticky;top:24px;z-index:2}}
 
-.assetActions button{display:inline-flex;align-items:center;justify-content:center;gap:7px}.assetActions button svg{width:17px;height:17px;flex:none}
+/* .brochureLink adalah anchor ke /properti/[id]/brosur, bukan <button>, karena tujuannya memang halaman
+   lain yang harus bisa dibuka di tab baru. Gayanya disamakan persis dengan dua tombol di sebelahnya. */
+.assetActions button,.assetActions .brochureLink{display:inline-flex;align-items:center;justify-content:center;gap:7px}.assetActions button svg,.assetActions .brochureLink svg{width:17px;height:17px;flex:none}
+.assetActions .brochureLink{min-height:44px;padding:0 6px;background:white;border:1px solid var(--line);border-radius:6px;color:var(--ink);font-weight:600;font-size:13px;text-decoration:none}
+.assetActions .brochureLink:hover{border-color:var(--ink);background:#f6f4ef}
+.assetActions .brochureLink:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
 
 .detailLayout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(340px,.75fr);gap:30px;align-items:start}.detailMain{min-width:0}.detailMain .hero,.detailMain .content{grid-template-columns:minmax(0,1fr)}/* 106px tinggi header situs + 16px napas. Sebelumnya 152px — angka itu menyisakan celah kosong 46px di
    atas sidebar dan memotong 46px tinggi yang bisa dipakai sebelum sidebar mulai ikut menggulir. */
